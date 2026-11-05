@@ -4,7 +4,7 @@ set -eu
 ROOT=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)
 ARCH=${1:-arm_cortex-a7_neon-vfpv4}
 FORMAT=${2:-both}
-VERSION=1.0.0
+VERSION=1.0.1
 CORE_VERSION=${CORE_VERSION:-26.10.21}
 GO=${GO_BIN:-go}
 APK=${APK_BIN:-}

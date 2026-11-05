@@ -10,10 +10,12 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"runtime"
 	"strings"
+	"syscall"
 	"time"
 )
 
@@ -186,7 +188,7 @@ func update(s Settings, input object) (any, error) {
 		}
 		script := "#!/bin/sh\nsleep 2\n" + manager
 		if manager == "apk" {
-			script += " add --allow-untrusted --upgrade /tmp/pol-update.apk"
+			script += " add --allow-untrusted --force-reinstall /tmp/pol-update.apk"
 		} else {
 			script += " install /tmp/pol-update.ipk"
 		}
@@ -194,7 +196,12 @@ func update(s Settings, input object) (any, error) {
 		if err = atomicWrite("/tmp/pol-install-update", []byte(script), 0700); err != nil {
 			return nil, err
 		}
-		_, err = run(3*time.Second, "/sbin/start-stop-daemon", "-S", "-b", "-x", "/bin/sh", "--", "/tmp/pol-install-update")
+		installer := exec.Command("/bin/sh", "/tmp/pol-install-update")
+		installer.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+		err = installer.Start()
+		if err == nil {
+			err = installer.Process.Release()
+		}
 		return object{"ok": err == nil, "scheduled": true, "version": rel.Tag}, err
 	}
 	zipReader, err := zip.OpenReader(path)

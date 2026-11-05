@@ -23,13 +23,13 @@
 OpenWrt با APK:
 
 ```sh
-apk add --allow-untrusted ./pol-core_26.10.21-r1_arm_cortex-a7_neon-vfpv4.apk ./pol_1.0.0-r1_arm_cortex-a7_neon-vfpv4.apk
+apk add --allow-untrusted ./pol-core_26.10.21-r1_arm_cortex-a7_neon-vfpv4.apk ./pol_1.0.1-r1_arm_cortex-a7_neon-vfpv4.apk
 ```
 
 OpenWrt با OPKG:
 
 ```sh
-opkg install ./pol-core_26.10.21-1_arm_cortex-a7_neon-vfpv4.ipk ./pol_1.0.0-1_arm_cortex-a7_neon-vfpv4.ipk
+opkg install ./pol-core_26.10.21-1_arm_cortex-a7_neon-vfpv4.ipk ./pol_1.0.1-1_arm_cortex-a7_neon-vfpv4.ipk
 ```
 
 صفحهٔ **Services → Pol** را باز کنید. در اولین نصب، سرویس خاموش است. وابستگی‌ها: `luci-base`، `rpcd`، `ca-bundle`، `ip-full`، `nftables` و `kmod-nft-tproxy`.

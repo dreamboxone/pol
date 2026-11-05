@@ -2,7 +2,7 @@ include $(TOPDIR)/rules.mk
 POL_SOURCE_DIR?=$(abspath $(CURDIR)/../..)
 
 PKG_NAME:=pol
-PKG_VERSION:=1.0.0
+PKG_VERSION:=1.0.1
 PKG_RELEASE:=1
 PKG_LICENSE:=GPL-3.0-only
 PKG_BUILD_DIR:=$(BUILD_DIR)/$(PKG_NAME)
