@@ -1,0 +1,66 @@
+name: Build packages
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    strategy:
+      matrix:
+        arch: [arm_cortex-a7_neon-vfpv4, aarch64_generic, x86_64]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26.0'
+      - name: Validate source
+        run: |
+          go test -race ./...
+          go vet ./...
+          node --check package/pol/files/www/luci-static/resources/view/pol/main.js
+      - name: Download verified SDK
+        run: |
+          base=https://downloads.openwrt.org/releases/25.12.5/targets/ipq40xx/chromium
+          file=openwrt-sdk-25.12.5-ipq40xx-chromium_gcc-14.3.0_musl_eabi.Linux-x86_64.tar.zst
+          curl -fL --retry 3 "$base/$file" -o /tmp/sdk.tar.zst
+          echo '09fec3a23a8cac4156bc976550a71542abdf0abf7e9aba0a6e869b9c0184e637  /tmp/sdk.tar.zst' | sha256sum -c -
+          mkdir -p /tmp/pol-sdk
+          tar --zstd -xf /tmp/sdk.tar.zst -C /tmp/pol-sdk --strip-components=1
+      - name: Fetch verified core
+        run: python3 build/fetch-core.py '${{ matrix.arch }}'
+      - name: Build IPK and APK
+        env:
+          APK_BIN: /tmp/pol-sdk/staging_dir/host/bin/apk
+        run: sudo --preserve-env=PATH,APK_BIN sh build/build.sh '${{ matrix.arch }}' both
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pol-${{ matrix.arch }}
+          path: dist/*
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: packages
+          merge-multiple: true
+      - name: Publish packages
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          cd packages
+          sha256sum ./*.ipk ./*.apk > SHA256SUMS
+          gh release create "$RELEASE_TAG" ./*.ipk ./*.apk SHA256SUMS --title "Pol $RELEASE_TAG" --generate-notes

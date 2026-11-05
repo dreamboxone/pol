@@ -1,0 +1,23 @@
+{
+  "enabled": false,
+  "mode": "worker",
+  "variant": "normal",
+  "host": "",
+  "uuid": "",
+  "address": "",
+  "port": 443,
+  "path": "/?ed=2560",
+  "dns": "https://1.1.1.1/dns-query",
+  "lan": "br-lan",
+  "transparent": true,
+  "fragmentLength": "100-200",
+  "fragmentDelay": "1-1",
+  "endpoint": "162.159.192.1:2408",
+  "transport": "h2",
+  "sni": "engage.cloudflareclient.com",
+  "bypassDomains": [],
+  "blockDomains": [],
+  "chain": "",
+  "logLevel": "warning",
+  "releaseRepository": "dreamboxone/pol"
+}

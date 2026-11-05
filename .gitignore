@@ -1,0 +1,7 @@
+/dist/
+/build/stage/
+/build/bin/
+/prebuilt/
+*.test
+*.log
+.DS_Store

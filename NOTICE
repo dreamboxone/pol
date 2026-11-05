@@ -1,0 +1,16 @@
+Pol VPN for OpenWrt
+
+This project adapts the configuration and Worker protocol of BPB-VPN:
+https://github.com/bia-pain-bache/BPB-VPN
+Source revision: 381df1270e3b81feaa7a878603ae049cf79a560f
+BPB-VPN is distributed under the GNU General Public License, version 3.
+The bundled worker.js is from that project. The Go configuration builder
+is an OpenWrt adaptation of its lib/services/xray_config.dart.
+
+Xray-core is independently distributed under the Mozilla Public License 2.0:
+https://github.com/XTLS/Xray-core
+Its license is included with the bpb-core package.
+
+The interface follows the visual layout of Zirgozar. No Zirgozar program
+source or stylesheet is included. Vazirmatn font files are distributed
+under the SIL Open Font License 1.1; the font's OFL.txt is included.

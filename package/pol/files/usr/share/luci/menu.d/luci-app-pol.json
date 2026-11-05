@@ -1,0 +1,8 @@
+{
+  "admin/services/pol": {
+    "title": "Pol",
+    "order": 41,
+    "action": {"type": "view", "path": "pol/main"},
+    "depends": {"acl": ["luci-app-pol"]}
+  }
+}

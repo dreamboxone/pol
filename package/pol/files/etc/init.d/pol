@@ -1,0 +1,24 @@
+#!/bin/sh /etc/rc.common
+START=95
+STOP=10
+USE_PROCD=1
+
+start_service() {
+	/usr/libexec/rpcd/pol prepare || return 1
+	procd_open_instance core
+	procd_set_param command /usr/lib/pol/pol-core run -config /var/run/pol/xray.json
+	procd_set_param respawn 3600 5 5
+	procd_set_param stdout 1
+	procd_set_param stderr 1
+	procd_set_param file /var/run/pol/xray.json
+	procd_set_param env XRAY_LOCATION_ASSET=/usr/share/pol
+	procd_close_instance
+}
+
+service_started() {
+	/usr/libexec/rpcd/pol network-start || { stop; return 1; }
+}
+
+stop_service() {
+	/usr/libexec/rpcd/pol network-stop
+}
