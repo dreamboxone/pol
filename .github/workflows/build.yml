@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: pol-build-${{ github.sha }}
+  group: pol-build-${{ github.ref }}
   cancel-in-progress: true
 
 permissions:
