@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="83 123 194 105" fill="none">
+  <defs>
+    <linearGradient id="pol-bridge" x1="94" y1="165" x2="267" y2="180" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#00cbea"/>
+      <stop offset=".48" stop-color="#3786ff"/>
+      <stop offset="1" stop-color="#bc55f5"/>
+    </linearGradient>
+  </defs>
+  <g fill="url(#pol-bridge)">
+    <path d="M155 139C153 143 149 147 149 151A6 6 0 0 0 161 151C161 147 157 143 155 139Z"/>
+    <path d="M180 133C177 139 171.7 144 171.7 150A8.3 8.3 0 0 0 188.3 150C188.3 144 183 139 180 133Z"/>
+    <path d="M205 139C203 143 199 147 199 151A6 6 0 0 0 211 151C211 147 207 143 205 139Z"/>
+    <path d="M93 187Q180 139 267 187L266 191Q257 195 252 218H239C244 173 212 169 215 218H201C205 157 156 157 159 218H145C148 173 116 170 121 218H108Q105 195 94 191Z"/>
+  </g>
+</svg>

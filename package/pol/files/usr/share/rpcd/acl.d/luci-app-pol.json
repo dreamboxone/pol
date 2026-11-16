@@ -1,7 +1,31 @@
 {
   "luci-app-pol": {
     "description": "Manage Pol VPN",
-    "read": {"ubus": {"pol": ["status", "settings", "logs", "releases"]}},
-    "write": {"ubus": {"pol": ["save", "toggle", "update", "import", "register", "deploy"]}}
+    "read": {
+      "ubus": {
+        "pol": [
+          "status",
+          "settings",
+          "logs",
+          "releases",
+          "geo"
+        ]
+      }
+    },
+    "write": {
+      "ubus": {
+        "pol": [
+          "save",
+          "toggle",
+          "update",
+          "import",
+          "register",
+          "deploy",
+          "scan",
+          "geoUpdate",
+          "check"
+        ]
+      }
+    }
   }
 }

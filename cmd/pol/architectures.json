@@ -1,0 +1,176 @@
+{
+  "arm_cortex-a7_neon-vfpv4": {
+    "goarch": "arm",
+    "goarm": "7",
+    "asset": "Xray-linux-arm32-v7a.zip",
+    "binary": "xray"
+  },
+  "arm_cortex-a7": {
+    "goarch": "arm",
+    "goarm": "7",
+    "asset": "Xray-linux-arm32-v7a.zip",
+    "binary": "xray"
+  },
+  "arm_cortex-a7_vfpv4": {
+    "goarch": "arm",
+    "goarm": "7",
+    "asset": "Xray-linux-arm32-v7a.zip",
+    "binary": "xray"
+  },
+  "arm_cortex-a5_vfpv4": {
+    "goarch": "arm",
+    "goarm": "7",
+    "asset": "Xray-linux-arm32-v7a.zip",
+    "binary": "xray"
+  },
+  "arm_cortex-a8_vfpv3": {
+    "goarch": "arm",
+    "goarm": "7",
+    "asset": "Xray-linux-arm32-v7a.zip",
+    "binary": "xray"
+  },
+  "arm_cortex-a9": {
+    "goarch": "arm",
+    "goarm": "7",
+    "asset": "Xray-linux-arm32-v7a.zip",
+    "binary": "xray"
+  },
+  "arm_cortex-a9_neon": {
+    "goarch": "arm",
+    "goarm": "7",
+    "asset": "Xray-linux-arm32-v7a.zip",
+    "binary": "xray"
+  },
+  "arm_cortex-a9_vfpv3-d16": {
+    "goarch": "arm",
+    "goarm": "7",
+    "asset": "Xray-linux-arm32-v7a.zip",
+    "binary": "xray"
+  },
+  "arm_cortex-a15_neon-vfpv4": {
+    "goarch": "arm",
+    "goarm": "7",
+    "asset": "Xray-linux-arm32-v7a.zip",
+    "binary": "xray"
+  },
+  "arm_arm1176jzf-s_vfp": {
+    "goarch": "arm",
+    "goarm": "6",
+    "asset": "Xray-linux-arm32-v6.zip",
+    "binary": "xray"
+  },
+  "arm_arm926ej-s": {
+    "goarch": "arm",
+    "goarm": "5",
+    "asset": "Xray-linux-arm32-v5.zip",
+    "binary": "xray"
+  },
+  "arm_xscale": {
+    "goarch": "arm",
+    "goarm": "5",
+    "asset": "Xray-linux-arm32-v5.zip",
+    "binary": "xray"
+  },
+  "aarch64_cortex-a53": {
+    "goarch": "arm64",
+    "goarm": "-",
+    "asset": "Xray-linux-arm64-v8a.zip",
+    "binary": "xray"
+  },
+  "aarch64_cortex-a72": {
+    "goarch": "arm64",
+    "goarm": "-",
+    "asset": "Xray-linux-arm64-v8a.zip",
+    "binary": "xray"
+  },
+  "aarch64_cortex-a76": {
+    "goarch": "arm64",
+    "goarm": "-",
+    "asset": "Xray-linux-arm64-v8a.zip",
+    "binary": "xray"
+  },
+  "aarch64_generic": {
+    "goarch": "arm64",
+    "goarm": "-",
+    "asset": "Xray-linux-arm64-v8a.zip",
+    "binary": "xray"
+  },
+  "mipsel_24kc": {
+    "goarch": "mipsle",
+    "goarm": "-",
+    "asset": "Xray-linux-mips32le.zip",
+    "binary": "xray_softfloat"
+  },
+  "mipsel_74kc": {
+    "goarch": "mipsle",
+    "goarm": "-",
+    "asset": "Xray-linux-mips32le.zip",
+    "binary": "xray_softfloat"
+  },
+  "mipsel_mips32": {
+    "goarch": "mipsle",
+    "goarm": "-",
+    "asset": "Xray-linux-mips32le.zip",
+    "binary": "xray_softfloat"
+  },
+  "mips_24kc": {
+    "goarch": "mips",
+    "goarm": "-",
+    "asset": "Xray-linux-mips32.zip",
+    "binary": "xray_softfloat"
+  },
+  "mips_4kec": {
+    "goarch": "mips",
+    "goarm": "-",
+    "asset": "Xray-linux-mips32.zip",
+    "binary": "xray_softfloat"
+  },
+  "mips_mips32": {
+    "goarch": "mips",
+    "goarm": "-",
+    "asset": "Xray-linux-mips32.zip",
+    "binary": "xray_softfloat"
+  },
+  "mips64_octeonplus": {
+    "goarch": "mips64",
+    "goarm": "-",
+    "asset": "Xray-linux-mips64.zip",
+    "binary": "xray"
+  },
+  "mips64_mips64r2": {
+    "goarch": "mips64",
+    "goarm": "-",
+    "asset": "Xray-linux-mips64.zip",
+    "binary": "xray"
+  },
+  "mips64el_mips64r2": {
+    "goarch": "mips64le",
+    "goarm": "-",
+    "asset": "Xray-linux-mips64le.zip",
+    "binary": "xray"
+  },
+  "x86_64": {
+    "goarch": "amd64",
+    "goarm": "-",
+    "asset": "Xray-linux-64.zip",
+    "binary": "xray"
+  },
+  "i386_pentium4": {
+    "goarch": "386",
+    "goarm": "-",
+    "asset": "Xray-linux-32.zip",
+    "binary": "xray"
+  },
+  "riscv64_riscv64": {
+    "goarch": "riscv64",
+    "goarm": "-",
+    "asset": "Xray-linux-riscv64.zip",
+    "binary": "xray"
+  },
+  "loongarch64_generic": {
+    "goarch": "loong64",
+    "goarm": "-",
+    "asset": "Xray-linux-loong64.zip",
+    "binary": "xray"
+  }
+}

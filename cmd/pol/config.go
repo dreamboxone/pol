@@ -17,8 +17,8 @@ func fragment(s Settings) object {
 	return object{"tcp": []any{object{"type": "fragment", "settings": object{"packets": "tlshello", "lengths": []string{s.FragmentLength}, "delays": []string{s.FragmentDelay}}}}}
 }
 
-func noise() object {
-	return object{"udp": []any{object{"type": "noise", "settings": object{"reset": "5-10", "noise": []any{object{"rand": "10-30", "randRange": "0-255", "delay": "1-3"}}}}}}
+func noise(s Settings) object {
+	return object{"udp": []any{object{"type": "noise", "settings": object{"reset": s.NoiseReset, "noise": []any{object{"rand": s.NoiseSize, "randRange": "0-255", "delay": s.NoiseDelay}}}}}}
 }
 
 func proxyOutbound(s Settings) (object, error) {
@@ -28,7 +28,23 @@ func proxyOutbound(s Settings) (object, error) {
 		if address == "" {
 			address = s.Host
 		}
-		stream := object{"network": "ws", "security": "tls", "tlsSettings": object{"serverName": s.Host, "fingerprint": "chrome", "alpn": []string{"http/1.1"}}, "wsSettings": object{"host": s.Host, "path": s.Path}}
+		sni := s.WorkerSNI
+		if sni == "" {
+			sni = s.Host
+		}
+		tls := object{"serverName": sni, "fingerprint": s.TLSFingerprint, "alpn": []string{"http/1.1"}}
+		if s.ECHDNS != "" && s.Variant != "fragment" {
+			resolver := s.ECHDNS
+			if ip := net.ParseIP(resolver); ip != nil {
+				if ip.To4() == nil {
+					resolver = "[" + resolver + "]"
+				}
+				resolver = "udp://" + resolver
+			}
+			tls["echConfigList"] = "cloudflare-ech.com+" + resolver
+			tls["echSockopt"] = object{"dialerProxy": "direct"}
+		}
+		stream := object{"network": "ws", "security": "tls", "tlsSettings": tls, "wsSettings": object{"host": s.Host, "path": s.Path}, "sockopt": object{"tcpFastOpen": s.TCPFastOpen, "domainStrategy": s.DNSStrategy}}
 		if s.Variant == "fragment" {
 			stream["finalmask"] = fragment(s)
 		}
@@ -38,9 +54,13 @@ func proxyOutbound(s Settings) (object, error) {
 		if a == nil {
 			return nil, errors.New("WARP account is missing")
 		}
-		out := object{"tag": "proxy", "protocol": "wireguard", "settings": object{"secretKey": a.PrivateKey, "address": []string{"172.16.0.2/32", a.IPv6}, "mtu": 1280, "reserved": a.Reserved, "peers": []any{object{"endpoint": s.Endpoint, "publicKey": a.PublicKey, "keepAlive": 30}}}}
+		reserved := a.Reserved
+		if !s.WarpReserved {
+			reserved = []int{0, 0, 0}
+		}
+		out := object{"tag": "proxy", "protocol": "wireguard", "settings": object{"secretKey": a.PrivateKey, "address": []string{"172.16.0.2/32", a.IPv6}, "mtu": s.WarpMTU, "reserved": reserved, "peers": []any{object{"endpoint": s.Endpoint, "publicKey": a.PublicKey, "keepAlive": s.WarpKeepAlive}}}}
 		if s.Variant == "obfuscated" {
-			out["streamSettings"] = object{"finalmask": noise()}
+			out["streamSettings"] = object{"finalmask": noise(s)}
 		}
 		return out, nil
 	case "masque":
@@ -58,19 +78,21 @@ func proxyOutbound(s Settings) (object, error) {
 		}
 		tls := object{"serverName": s.SNI, "alpn": []string{s.Transport}}
 		if s.Transport == "h2" {
-			tls["fingerprint"] = "chrome"
+			tls["fingerprint"] = s.TLSFingerprint
 		}
 		stream := object{"network": "masque", "security": "tls", "tlsSettings": tls, "masqueSettings": object{"warp": object{"privateKey": a.PrivateKey, "publicKey": a.PublicKey, "address": []string{a.IPv4, a.IPv6}}}}
 		if s.Variant != "normal" {
 			if s.Transport == "h2" {
 				stream["finalmask"] = fragment(s)
 			} else {
-				stream["finalmask"] = noise()
+				stream["finalmask"] = noise(s)
 			}
 		}
 		return object{"tag": "proxy", "protocol": "masque", "settings": object{"address": host, "port": p}, "streamSettings": stream}, nil
 	case "serverless":
-		return object{"tag": "proxy", "protocol": "freedom", "settings": object{}, "streamSettings": object{"sockopt": object{"domainStrategy": "UseIP"}, "finalmask": fragment(s)}}, nil
+		mask := fragment(s)
+		mask["udp"] = noise(s)["udp"]
+		return object{"tag": "proxy", "protocol": "freedom", "settings": object{}, "streamSettings": object{"sockopt": object{"domainStrategy": s.DNSStrategy}, "finalmask": mask}}, nil
 	case "tor":
 		return object{"tag": "proxy", "protocol": "socks", "settings": object{"servers": []any{object{"address": "127.0.0.1", "port": 9050}}}}, nil
 	case "psiphon":
@@ -87,6 +109,7 @@ func inbound() []any {
 		object{"tag": "dns6-in", "listen": "::", "port": 24813, "protocol": "dokodemo-door", "settings": object{"address": "2606:4700:4700::1111", "port": 53, "network": "tcp,udp"}, "streamSettings": object{"sockopt": object{"tproxy": "tproxy"}}},
 		object{"tag": "socks-in", "listen": "127.0.0.1", "port": 24800, "protocol": "socks", "settings": object{"auth": "noauth", "udp": true}},
 		object{"tag": "http-in", "listen": "127.0.0.1", "port": 24801, "protocol": "http", "settings": object{}},
+		object{"tag": "api-in", "listen": "127.0.0.1", "port": 24815, "protocol": "dokodemo-door", "settings": object{"address": "127.0.0.1"}},
 	}
 }
 
@@ -143,12 +166,18 @@ func buildConfig(s Settings) (object, error) {
 		outbounds = append(outbounds, chain)
 	}
 	outbounds = append(outbounds, object{"tag": "direct", "protocol": "freedom"}, object{"tag": "block", "protocol": "blackhole"}, object{"tag": "dns-out", "protocol": "dns"})
-	rules := []any{object{"type": "field", "inboundTag": []string{"dns-in", "dns6-in"}, "outboundTag": "dns-out"}}
-	if len(s.BlockDomains) > 0 {
-		rules = append(rules, domainRule(s.BlockDomains, "block"))
+	rules := []any{object{"type": "field", "inboundTag": []string{"api-in"}, "outboundTag": "api"}, object{"type": "field", "inboundTag": []string{"dns-in", "dns6-in"}, "outboundTag": "dns-out"}}
+	if s.RouteIran {
+		rules = append(rules, object{"type": "field", "domain": []string{"geosite:ir"}, "outboundTag": "direct"}, object{"type": "field", "ip": []string{"geoip:ir", s.IranDNS}, "outboundTag": "direct"})
+	}
+	if len(s.DirectIPs) > 0 {
+		rules = append(rules, object{"type": "field", "ip": s.DirectIPs, "outboundTag": "direct"})
 	}
 	if len(s.BypassDomains) > 0 {
 		rules = append(rules, domainRule(s.BypassDomains, "direct"))
+	}
+	if len(s.BlockDomains) > 0 {
+		rules = append(rules, domainRule(s.BlockDomains, "block"))
 	}
 	rules = append(rules, object{"type": "field", "ip": []string{"10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "127.0.0.0/8", "169.254.0.0/16", "::1/128", "fc00::/7", "fe80::/10"}, "outboundTag": "direct"})
 	if s.Mode == "tor" {
@@ -163,7 +192,7 @@ func buildConfig(s Settings) (object, error) {
 	if !s.Transparent {
 		ins = ins[4:]
 	}
-	return object{"log": object{"loglevel": s.LogLevel}, "dns": object{"servers": []string{s.DNS}, "queryStrategy": "UseIPv4"}, "inbounds": ins, "outbounds": outbounds, "routing": object{"domainStrategy": "IPIfNonMatch", "rules": rules}}, nil
+	return object{"stats": object{}, "api": object{"tag": "api", "services": []string{"StatsService"}}, "policy": object{"system": object{"statsInboundUplink": true, "statsInboundDownlink": true}}, "log": object{"loglevel": s.LogLevel}, "dns": object{"servers": []string{s.DNS}, "queryStrategy": s.DNSStrategy}, "inbounds": ins, "outbounds": outbounds, "routing": object{"domainStrategy": "IPIfNonMatch", "rules": rules}}, nil
 }
 
 func outboundFromURI(raw string) (object, error) {
@@ -272,6 +301,10 @@ func importConfig(s Settings, text string) (Settings, error) {
 				s.Host = u.Hostname()
 			}
 			s.UUID = u.User.Username()
+			s.WorkerSNI = q.Get("sni")
+			if q.Get("fp") != "" {
+				s.TLSFingerprint = q.Get("fp")
+			}
 			s.Address = u.Hostname()
 			s.Path = q.Get("path")
 			if s.Path == "" {
@@ -298,7 +331,7 @@ func importConfig(s Settings, text string) (Settings, error) {
 	}
 	var data object
 	if err := json.Unmarshal([]byte(text), &data); err != nil {
-		return s, errors.New("paste a proxy URI, BPB settings, or Xray JSON")
+		return s, errors.New("paste a proxy URI, Pol settings, or Xray JSON")
 	}
 	if _, ok := data["outbounds"]; ok {
 		s.Custom = json.RawMessage(text)
@@ -316,7 +349,41 @@ func importConfig(s Settings, text string) (Settings, error) {
 	return s, nil
 }
 
+func networkRules(s Settings) (string, error) {
+	geoSets, geoRules, dnsRules, natRules := "", "", "", ""
+	if s.RouteIran {
+		prefixes, e := loadIran("geoip")
+		if e != nil {
+			return "", e
+		}
+		geoSets = iranSets(prefixes)
+		geoRules = "  ip daddr @iran4 counter return\n  ip6 daddr @iran6 counter return\n  ip daddr @iran_domains4 counter return\n  ip6 daddr @iran_domains6 counter return\n"
+		dnsRules = "  meta l4proto { tcp, udp } th dport 53 return\n"
+		natRules = fmt.Sprintf(" chain dns_redirect { type nat hook prerouting priority dstnat; policy accept; iifname %q meta l4proto { tcp, udp } th dport 53 redirect to :24814; }\n", s.LAN)
+	} else {
+		dnsRules = "  meta nfproto ipv4 meta l4proto { tcp, udp } th dport 53 tproxy ip to :24812 meta mark set meta mark | 0x40000000 accept\n  meta nfproto ipv6 meta l4proto { tcp, udp } th dport 53 tproxy ip6 to :24813 meta mark set meta mark | 0x40000000 accept\n"
+	}
+	geoRules = literalDirectRules(s.DirectIPs) + geoRules
+	script := fmt.Sprintf(`table inet pol {
+%s
+ chain prerouting {
+  type filter hook prerouting priority -151; policy accept;
+  iifname != %q return
+%s%s  fib daddr type local return
+  ip daddr { 0.0.0.0/8, 10.0.0.0/8, 127.0.0.0/8, 169.254.0.0/16, 172.16.0.0/12, 192.168.0.0/16, 224.0.0.0/4, 240.0.0.0/4 } return
+  ip6 daddr { ::1/128, fc00::/7, fe80::/10, ff00::/8 } return
+  meta nfproto ipv4 meta l4proto { tcp, udp } tproxy ip to :24810 meta mark set meta mark | 0x40000000 accept
+  meta nfproto ipv6 meta l4proto { tcp, udp } tproxy ip6 to :24811 meta mark set meta mark | 0x40000000 accept
+ }
+%s}
+`, geoSets, s.LAN, dnsRules, geoRules, natRules)
+	return script, nil
+}
+
 func networkStart(s Settings) error {
+	if _, err := os.Stat(runtimeDir + "/stop-request"); err == nil {
+		return errors.New("service stopped by the main switch")
+	}
 	if !s.Transparent {
 		return networkStop()
 	}
@@ -361,28 +428,36 @@ func networkStart(s Settings) error {
 			return err
 		}
 	}
-	script := fmt.Sprintf(`table inet pol {
- chain prerouting {
-  type filter hook prerouting priority -151; policy accept;
-  iifname != %q return
-  meta nfproto ipv4 meta l4proto { tcp, udp } th dport 53 tproxy ip to :24812 meta mark set meta mark | 0x40000000 accept
-  meta nfproto ipv6 meta l4proto { tcp, udp } th dport 53 tproxy ip6 to :24813 meta mark set meta mark | 0x40000000 accept
-  fib daddr type local return
-  ip daddr { 0.0.0.0/8, 10.0.0.0/8, 127.0.0.0/8, 169.254.0.0/16, 172.16.0.0/12, 192.168.0.0/16, 224.0.0.0/4, 240.0.0.0/4 } return
-  ip6 daddr { ::1/128, fc00::/7, fe80::/10, ff00::/8 } return
-  meta nfproto ipv4 meta l4proto { tcp, udp } tproxy ip to :24810 meta mark set meta mark | 0x40000000 accept
-  meta nfproto ipv6 meta l4proto { tcp, udp } tproxy ip6 to :24811 meta mark set meta mark | 0x40000000 accept
- }
-}
-`, s.LAN)
+	script, err := networkRules(s)
+	if err != nil {
+		return err
+	}
 	if err := inputCommand("nft", []string{"-f", "-"}, script); err != nil {
 		_ = networkStop()
 		return err
+	}
+	if s.RouteIran {
+		if err := restoreIranDomains(); err != nil {
+			_ = networkStop()
+			return err
+		}
+	} else {
+		_ = os.Remove(runtimeDir + "/iran-cache.json")
 	}
 	// fw4 owns the input chain; a dynamic rule also covers custom LAN interface names.
 	if err := inputCommand("nft", []string{"-f", "-"}, fmt.Sprintf("insert rule inet fw4 input iifname %q meta mark & 0x40000000 == 0x40000000 accept comment \"pol-live\"\n", s.LAN)); err != nil {
 		_ = networkStop()
 		return err
+	}
+	if s.RouteIran {
+		if err := inputCommand("nft", []string{"-f", "-"}, fmt.Sprintf("insert rule inet fw4 input iifname %q meta l4proto { tcp, udp } th dport 24814 accept comment \"pol-live\"\n", s.LAN)); err != nil {
+			_ = networkStop()
+			return err
+		}
+	}
+	if _, e := os.Stat(runtimeDir + "/stop-request"); e == nil {
+		_ = networkStop()
+		return errors.New("service stopped by the main switch")
 	}
 	event("Transparent routing started on " + s.LAN)
 	return nil

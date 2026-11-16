@@ -7,12 +7,20 @@ export default {
     async fetch(request, env, ctx) {
         try {
             const settings = readSettings(env);
-            if (!settings) return new Response('Not found', { status: 404 });
+            if (!settings) {
+                return new Response('Not found', { status: 404 });
+            }
 
             const upgrade = request.headers.get('Upgrade');
             if (upgrade && upgrade.toLowerCase() === 'websocket') {
                 return vOverWS(request, settings);
             }
+
+            const { pathname } = new URL(request.url);
+            if (pathname === `/${settings.id}`) {
+                return handleDoH(request);
+            }
+
             return fallback(request, settings);
         } catch {
             return new Response('Internal error', { status: 500 });
@@ -52,6 +60,15 @@ async function fallback(request, settings) {
         }
     }
     return new Response('Not found', { status: 404, headers: { 'Content-Type': 'text/plain' } });
+}
+
+function handleDoH(request) {
+    const incomming = new URL(request.url);
+    const target = new URL('https://security.cloudflare-dns.com/dns-query');
+    target.search = incomming.search;
+    const req = new Request(target, request);
+
+    return fetch(req);
 }
 
 async function vOverWS(request, settings) {

@@ -6,26 +6,49 @@ on:
   pull_request:
   workflow_dispatch:
 
+concurrency:
+  group: pol-build-${{ github.sha }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
 
 jobs:
+  targets:
+    runs-on: ubuntu-24.04
+    outputs:
+      arch: ${{ steps.arch.outputs.arch }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: arch
+        run: echo "arch=$(python3 build/architectures.py)" >> "$GITHUB_OUTPUT"
   build:
+    needs: targets
     runs-on: ubuntu-24.04
     strategy:
+      max-parallel: 4
+      fail-fast: false
       matrix:
-        arch: [arm_cortex-a7_neon-vfpv4, aarch64_generic, x86_64]
+        arch: ${{ fromJSON(needs.targets.outputs.arch) }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
           go-version: '1.26.0'
+          cache: false
       - name: Validate source
         run: |
           go test -race ./...
           go vet ./...
           node --check package/pol/files/www/luci-static/resources/view/pol/main.js
+      - name: Cache SDK
+        id: sdk
+        uses: actions/cache@v4
+        with:
+          path: /tmp/pol-sdk
+          key: openwrt-sdk-25.12.5-09fec3a23a8cac41
       - name: Download verified SDK
+        if: steps.sdk.outputs.cache-hit != 'true'
         run: |
           base=https://downloads.openwrt.org/releases/25.12.5/targets/ipq40xx/chromium
           file=openwrt-sdk-25.12.5-ipq40xx-chromium_gcc-14.3.0_musl_eabi.Linux-x86_64.tar.zst
@@ -34,6 +57,8 @@ jobs:
           mkdir -p /tmp/pol-sdk
           tar --zstd -xf /tmp/sdk.tar.zst -C /tmp/pol-sdk --strip-components=1
       - name: Fetch verified core
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: python3 build/fetch-core.py '${{ matrix.arch }}'
       - name: Build IPK and APK
         env:
@@ -42,5 +67,37 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: pol-${{ matrix.arch }}
-          path: dist/*
+          path: |
+            dist/pol_*.ipk
+            dist/pol_*.apk
+            dist/SHA256SUMS
 
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: pol-*
+          path: packages
+          merge-multiple: true
+      - name: Verify release packages
+        shell: bash
+        run: |
+          expected=$(python3 build/architectures.py | python3 -c 'import json,sys; print(len(json.load(sys.stdin)) * 2)')
+          actual=$(find packages -maxdepth 1 -type f \( -name '*.ipk' -o -name '*.apk' \) | wc -l)
+          test "$actual" -eq "$expected"
+          (cd packages && sha256sum ./*.ipk ./*.apk > SHA256SUMS)
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        shell: bash
+        run: |
+          gh release create "$TAG" packages/*.ipk packages/*.apk packages/SHA256SUMS \
+            --verify-tag --title "پل ${TAG#v}" --notes-file .github/release-notes.md --latest

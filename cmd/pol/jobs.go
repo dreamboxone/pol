@@ -3,27 +3,36 @@ package main
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"os/exec"
 	"regexp"
+	"strings"
 	"syscall"
 	"time"
 )
 
 type Job struct {
-	ID      string `json:"id"`
-	Method  string `json:"method"`
-	State   string `json:"state"`
-	Result  any    `json:"result,omitempty"`
-	Error   string `json:"error,omitempty"`
-	Started int64  `json:"started"`
+	Target   string          `json:"target,omitempty"`
+	PID      int             `json:"pid,omitempty"`
+	ID       string          `json:"id"`
+	Method   string          `json:"method"`
+	State    string          `json:"state"`
+	Result   any             `json:"result,omitempty"`
+	Error    string          `json:"error,omitempty"`
+	Started  int64           `json:"started"`
+	Progress *UpdateProgress `json:"progress,omitempty"`
 }
 
 func readJob() Job {
 	var j Job
 	b, _ := os.ReadFile(runtimeDir + "/job.json")
 	_ = json.Unmarshal(b, &j)
+	var p UpdateProgress
+	if b, err := os.ReadFile(runtimeDir + "/update-progress.json"); err == nil && json.Unmarshal(b, &p) == nil && p.ID == j.ID {
+		j.Progress = &p
+	}
 	return j
 }
 
@@ -44,7 +53,11 @@ func startJob(method string, input object) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	j := Job{ID: id, Method: method, State: "pending", Started: time.Now().Unix()}
+	target, _ := input["kind"].(string)
+	if method == "update" {
+		target, _ = input["component"].(string)
+	}
+	j := Job{ID: id, Method: method, Target: target, State: "pending", Started: time.Now().Unix()}
 	if err = writeJob(j); err != nil {
 		return nil, err
 	}
@@ -62,6 +75,12 @@ func startJob(method string, input object) (any, error) {
 		pipe.Close()
 		return nil, err
 	}
+	j.PID = cmd.Process.Pid
+	if err = writeJob(j); err != nil {
+		_ = syscall.Kill(-j.PID, syscall.SIGTERM)
+		pipe.Close()
+		return nil, err
+	}
 	// Secrets travel over a pipe and are never written to disk or command arguments.
 	err = json.NewEncoder(pipe).Encode(input)
 	pipe.Close()
@@ -72,8 +91,23 @@ func startJob(method string, input object) (any, error) {
 	return object{"job": id}, nil
 }
 
+func cancelJob() {
+	j := readJob()
+	if j.PID <= 1 || (j.State != "pending" && j.State != "running") {
+		return
+	}
+	cmdline, err := os.ReadFile(fmt.Sprintf("/proc/%d/cmdline", j.PID))
+	if err != nil || !strings.Contains(string(cmdline), "\x00job\x00"+j.Method+"\x00"+j.ID) {
+		return
+	}
+	_ = syscall.Kill(-j.PID, syscall.SIGTERM)
+	j.State = "failed"
+	j.Error = "Cancelled by the main switch"
+	_ = writeJob(j)
+}
+
 func executeJob(method, id string) {
-	if !contains([]string{"deploy", "register", "update"}, method) || !regexp.MustCompile(`^[a-f0-9-]{36}$`).MatchString(id) {
+	if !contains([]string{"deploy", "register", "update", "scan", "geoUpdate", "check"}, method) || !regexp.MustCompile(`^[a-f0-9-]{36}$`).MatchString(id) {
 		os.Exit(1)
 	}
 	input := object{}
@@ -104,4 +138,35 @@ func executeJob(method, id string) {
 		j.State = "done"
 	}
 	_ = writeJob(j)
+}
+
+type UpdateProgress struct {
+	ID       string `json:"id"`
+	Phase    string `json:"phase"`
+	Received int64  `json:"received"`
+	Total    int64  `json:"total"`
+}
+
+func reportUpdateProgress(phase string, received, total int64) {
+	j := readJob()
+	if (j.Method != "update" && j.Method != "geoUpdate") || j.State != "running" {
+		return
+	}
+	p := UpdateProgress{ID: j.ID, Phase: phase, Received: received, Total: total}
+	b, _ := json.Marshal(p)
+	_ = atomicWrite(runtimeDir+"/update-progress.json", b, 0600)
+}
+
+type downloadProgress struct {
+	received, total int64
+	last            time.Time
+}
+
+func (p *downloadProgress) Write(b []byte) (int, error) {
+	p.received += int64(len(b))
+	if time.Since(p.last) >= 500*time.Millisecond {
+		reportUpdateProgress("downloading", p.received, p.total)
+		p.last = time.Now()
+	}
+	return len(b), nil
 }

@@ -13,7 +13,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
-	"runtime"
 	"strings"
 	"syscall"
 	"time"
@@ -58,19 +57,118 @@ func getRelease(repo, tag string) (Release, error) {
 	return release, err
 }
 
-func releases(s Settings) (any, error) {
-	core, ce := getRelease("XTLS/Xray-core", "")
-	out := object{"core": core.Tag, "app": "", "repository": s.ReleaseRepository}
-	if ce != nil {
-		out["coreError"] = ce.Error()
+func installedVersion(component string) string {
+	if component == "app" {
+		return version
 	}
-	if s.ReleaseRepository != "" {
-		app, e := getRelease(s.ReleaseRepository, "")
-		if e != nil {
-			out["appError"] = e.Error()
-		} else {
-			out["app"] = app.Tag
+	fields := strings.Fields(cachedCoreVersion())
+	if len(fields) > 1 && fields[0] == "Xray" {
+		return fields[1]
+	}
+	return ""
+}
+
+func versionOrder(a, b string) (int, bool) {
+	pattern := regexp.MustCompile(`^[vV]?([0-9]+)\.([0-9]+)\.([0-9]+)(?:-([0-9A-Za-z.-]+))?(?:\+[0-9A-Za-z.-]+)?$`)
+	x, y := pattern.FindStringSubmatch(a), pattern.FindStringSubmatch(b)
+	if x == nil || y == nil {
+		return 0, false
+	}
+	for i := 1; i <= 3; i++ {
+		u, v := strings.TrimLeft(x[i], "0"), strings.TrimLeft(y[i], "0")
+		if len(u) > len(v) {
+			return 1, true
 		}
+		if len(u) < len(v) {
+			return -1, true
+		}
+		if u > v {
+			return 1, true
+		}
+		if u < v {
+			return -1, true
+		}
+	}
+	if x[4] == y[4] {
+		return 0, true
+	}
+	if x[4] == "" {
+		return 1, true
+	}
+	if y[4] == "" {
+		return -1, true
+	}
+	u, v := strings.Split(x[4], "."), strings.Split(y[4], ".")
+	numeric := regexp.MustCompile(`^[0-9]+$`)
+	for i := 0; i < len(u) && i < len(v); i++ {
+		if u[i] == v[i] {
+			continue
+		}
+		un, vn := numeric.MatchString(u[i]), numeric.MatchString(v[i])
+		if un && vn {
+			aa, bb := strings.TrimLeft(u[i], "0"), strings.TrimLeft(v[i], "0")
+			if len(aa) > len(bb) {
+				return 1, true
+			}
+			if len(aa) < len(bb) {
+				return -1, true
+			}
+			if aa > bb {
+				return 1, true
+			}
+			if aa < bb {
+				return -1, true
+			}
+			continue
+		}
+		if un && !vn {
+			return -1, true
+		}
+		if !un && vn {
+			return 1, true
+		}
+		if u[i] > v[i] {
+			return 1, true
+		}
+		return -1, true
+	}
+	if len(u) > len(v) {
+		return 1, true
+	}
+	if len(u) < len(v) {
+		return -1, true
+	}
+	return 0, true
+}
+
+var lookupRelease = getRelease
+
+func releases(s Settings, component string) (any, error) {
+	if component != "" && component != "app" && component != "core" {
+		return nil, errors.New("invalid update component")
+	}
+	out := object{}
+	for _, kind := range []string{"core", "app"} {
+		if component != "" && component != kind {
+			continue
+		}
+		repo := "dreamboxone/pol"
+		if kind == "core" {
+			repo = "XTLS/Xray-core"
+		}
+		current := installedVersion(kind)
+		out[kind+"Current"] = current
+		out[kind+"Repository"] = repo
+		rel, err := lookupRelease(repo, "")
+		if err != nil {
+			out[kind+"Error"] = err.Error()
+			continue
+		}
+		out[kind] = rel.Tag
+		order, known := versionOrder(rel.Tag, current)
+		out[kind+"Comparable"] = known
+		out[kind+"UpToDate"] = known && order <= 0
+		out[kind+"Newer"] = current == "" || known && order > 0
 	}
 	return out, nil
 }
@@ -93,7 +191,9 @@ func download(asset Asset, path string, max int64) error {
 		return err
 	}
 	h := sha256.New()
-	n, err := io.Copy(io.MultiWriter(f, h), io.LimitReader(resp.Body, max+1))
+	progress := &downloadProgress{total: resp.ContentLength}
+	reportUpdateProgress("downloading", 0, resp.ContentLength)
+	n, err := io.Copy(io.MultiWriter(f, h, progress), io.LimitReader(resp.Body, max+1))
 	closeErr := f.Close()
 	if err != nil {
 		return err
@@ -104,6 +204,7 @@ func download(asset Asset, path string, max int64) error {
 	if n > max {
 		return errors.New("download exceeds size limit")
 	}
+	reportUpdateProgress("verifying", n, resp.ContentLength)
 	digest := strings.TrimPrefix(asset.Digest, "sha256:")
 	if len(digest) != 64 || !strings.EqualFold(hex.EncodeToString(h.Sum(nil)), digest) {
 		return errors.New("release asset SHA-256 verification failed or digest is missing")
@@ -112,24 +213,11 @@ func download(asset Asset, path string, max int64) error {
 }
 
 func coreAsset() (string, error) {
-	switch runtime.GOARCH {
-	case "arm":
-		return "Xray-linux-arm32-v7a.zip", nil
-	case "arm64":
-		return "Xray-linux-arm64-v8a.zip", nil
-	case "amd64":
-		return "Xray-linux-64.zip", nil
-	case "386":
-		return "Xray-linux-32.zip", nil
-	case "mips":
-		return "Xray-linux-mips32.zip", nil
-	case "mipsle":
-		return "Xray-linux-mips32le.zip", nil
-	case "riscv64":
-		return "Xray-linux-riscv64.zip", nil
-	default:
+	target, ok := architectures()[packageArch()]
+	if !ok {
 		return "", errors.New("unsupported core architecture")
 	}
+	return target.Asset, nil
 }
 
 func update(s Settings, input object) (any, error) {
@@ -138,7 +226,7 @@ func update(s Settings, input object) (any, error) {
 	if component != "core" && component != "app" {
 		return nil, errors.New("invalid update component")
 	}
-	repo := s.ReleaseRepository
+	repo := "dreamboxone/pol"
 	name := ""
 	if component == "core" {
 		repo = "XTLS/Xray-core"
@@ -151,6 +239,16 @@ func update(s Settings, input object) (any, error) {
 	rel, err := getRelease(repo, tag)
 	if err != nil {
 		return nil, err
+	}
+	current := installedVersion(component)
+	if current != "" {
+		order, known := versionOrder(rel.Tag, current)
+		if !known {
+			return nil, errors.New("cannot compare installed and release versions")
+		}
+		if order <= 0 {
+			return object{"ok": true, "upToDate": true, "version": current}, nil
+		}
 	}
 	manager := "opkg"
 	ext := ".ipk"
@@ -181,6 +279,7 @@ func update(s Settings, input object) (any, error) {
 	if err = download(asset, path, 100<<20); err != nil {
 		return nil, err
 	}
+	reportUpdateProgress("installing", 0, 0)
 	if component == "app" {
 		// The detached installer survives rpcd's restart during the package post-install hook.
 		if err = atomicWrite("/tmp/pol-update"+ext, mustRead(path), 0600); err != nil {
@@ -211,7 +310,7 @@ func update(s Settings, input object) (any, error) {
 	defer zipReader.Close()
 	var data []byte
 	for _, f := range zipReader.File {
-		if f.Name == "xray" {
+		if f.Name == architectures()[packageArch()].Binary {
 			if f.UncompressedSize64 > 120<<20 {
 				return nil, errors.New("core too large")
 			}
@@ -243,7 +342,7 @@ func update(s Settings, input object) (any, error) {
 			return nil, err
 		}
 	}
-	if err = os.Rename(corePath, corePath+".previous"); err != nil {
+	if err = backupFile(corePath, corePath+".previous"); err != nil {
 		return nil, err
 	}
 	if err = os.Rename(next, corePath); err != nil {
@@ -259,19 +358,6 @@ func update(s Settings, input object) (any, error) {
 	}
 	event("Core updated independently to " + rel.Tag)
 	return object{"ok": true, "version": rel.Tag}, nil
-}
-
-func packageArch() string {
-	if runtime.GOARCH == "arm" {
-		return "arm_cortex-a7_neon-vfpv4"
-	}
-	if runtime.GOARCH == "amd64" {
-		return "x86_64"
-	}
-	if runtime.GOARCH == "arm64" {
-		return "aarch64_generic"
-	}
-	return runtime.GOARCH
 }
 
 func mustRead(path string) []byte { b, _ := os.ReadFile(path); return b }
