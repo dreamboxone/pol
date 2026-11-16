@@ -91,3 +91,5 @@ Use `apk del pol` on APK-based OpenWrt, or `opkg remove pol` on OPKG-based OpenW
 ## License
 
 Pol and the bundled Worker: GPL-3.0-only. Dashboard styles adapted from Zirgozar: AGPL-3.0-or-later. Xray-core: MPL-2.0. Vazirmatn: OFL-1.1. See [NOTICE](NOTICE) and the included licenses for provenance.
+
+System dependencies are declared in the package: luci-base, rpcd, ca-bundle, ip-full, nftables and kmod-nft-tproxy. The package manager keeps installed dependencies and fetches missing ones from the matching OpenWrt repositories, so repository access is required. Pol includes its own management view and Xray, while these system packages remain dependencies. Iran bypass additionally requires dnsmasq with nftset support; use a compatible dnsmasq-full package if the installed dnsmasq lacks that feature.
