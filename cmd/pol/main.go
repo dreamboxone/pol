@@ -19,7 +19,7 @@ import (
 	"time"
 )
 
-const version = "1.3.0"
+const version = "1.5.0"
 const settingsPath = "/etc/pol/settings.json"
 const corePath = "/usr/lib/pol/xray"
 
@@ -90,7 +90,7 @@ type MasqueAccount struct {
 }
 
 func defaults() Settings {
-	return Settings{DirectIPs: []string{}, RebindDomains: []string{"banksepah.ir", "cbi.ir", "ebanksepah.ir", "esata.ir", "gov.ir", "medu.ir", "qmb.ir", "tamin.ir", "meedc.net", "ntp.faraborddi.com"}, GeoDirectory: "/etc/pol/geo", GeoAuto: "disabled", GeoIPUpdate: true, GeoSiteUpdate: true, IranDNS: "178.22.122.100", GeoIPURL: geoBase + "geoip.dat", GeoSiteURL: geoBase + "geosite.dat", Mode: "worker", Variant: "normal", Port: 443, Path: "/?ed=2560", DNS: "https://1.1.1.1/dns-query", LAN: "br-lan", Transparent: true, FragmentLength: "100-200", FragmentDelay: "1-1", TLSFingerprint: "chrome", DNSStrategy: "UseIPv4", NoiseSize: "10-30", NoiseDelay: "1-3", NoiseReset: "5-10", WarpMTU: 1280, WarpKeepAlive: 30, WarpReserved: true, Endpoint: "162.159.192.1:2408", Transport: "h2", SNI: "engage.cloudflareclient.com", LogLevel: "warning", ReleaseRepository: "dreamboxone/pol", BypassDomains: []string{}, BlockDomains: []string{}}
+	return Settings{DirectIPs: []string{}, RebindDomains: []string{"banksepah.ir", "cbi.ir", "ebanksepah.ir", "esata.ir", "gov.ir", "medu.ir", "qmb.ir", "tamin.ir", "meedc.net", "ntp.faraborddi.com", "qmehr724.com"}, GeoDirectory: "/etc/pol/geo", GeoAuto: "disabled", GeoIPUpdate: true, GeoSiteUpdate: true, IranDNS: "178.22.122.100", GeoIPURL: geoBase + "geoip.dat", GeoSiteURL: geoBase + "geosite.dat", Mode: "worker", Variant: "normal", Port: 443, Path: "/?ed=2560", DNS: "https://1.1.1.1/dns-query", LAN: "br-lan", Transparent: true, FragmentLength: "100-200", FragmentDelay: "1-1", TLSFingerprint: "chrome", DNSStrategy: "UseIPv4", NoiseSize: "10-30", NoiseDelay: "1-3", NoiseReset: "5-10", WarpMTU: 1280, WarpKeepAlive: 30, WarpReserved: true, Endpoint: "162.159.192.1:2408", Transport: "h2", SNI: "engage.cloudflareclient.com", LogLevel: "warning", ReleaseRepository: "dreamboxone/pol", BypassDomains: []string{}, BlockDomains: []string{}}
 }
 
 func load() (Settings, error) {

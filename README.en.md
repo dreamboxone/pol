@@ -41,7 +41,7 @@ Open **Services → Pol**. The service starts disabled. Dependencies are `luci-b
 
 ## Connect
 
-In Cloudflare, create an API token scoped to the intended account with Workers Scripts Edit or equivalent Workers Admin permissions. Set up your account's workers.dev subdomain. Enter the token, Account ID and a new Worker name in Pol's Cloudflare tab. The app deploys the bundled Worker and generates the UUID. The token is used in memory and is never saved in settings, command arguments or reports.
+In Cloudflare, select Create Token, enter a Token name, then choose Policies > Start from scratch (Custom) > Start with an Account policy. Create the token scoped to the intended account with Workers Scripts Edit or equivalent Workers Admin permissions. Set up your account's workers.dev subdomain. Enter the token, Account ID and a new Worker name in Pol's Cloudflare tab. The app deploys the bundled Worker and generates the UUID. The token is used in memory and is never saved in settings, command arguments or reports.
 
 Deployment creates a new remote Worker. It does not replace an existing Worker. If local settings fail after remote deployment, manage the created Worker from your Cloudflare dashboard.
 
@@ -93,3 +93,5 @@ Use `apk del pol` on APK-based OpenWrt, or `opkg remove pol` on OPKG-based OpenW
 Pol and the bundled Worker: GPL-3.0-only. Dashboard styles adapted from Zirgozar: AGPL-3.0-or-later. Xray-core: MPL-2.0. Vazirmatn: OFL-1.1. See [NOTICE](NOTICE) and the included licenses for provenance.
 
 System dependencies are declared in the package: luci-base, rpcd, ca-bundle, ip-full, nftables and kmod-nft-tproxy. The package manager keeps installed dependencies and fetches missing ones from the matching OpenWrt repositories, so repository access is required. Pol includes its own management view and Xray, while these system packages remain dependencies. Iran bypass additionally requires dnsmasq with nftset support; use a compatible dnsmasq-full package if the installed dnsmasq lacks that feature.
+
+Back up and restore settings under Settings > Settings backup and restore. Use Back up to download the JSON file and Restore to select a saved Pol settings file. Restoring preserves the current on/off state. Backup files contain connection secrets; keep them private.

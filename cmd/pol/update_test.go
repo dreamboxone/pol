@@ -23,7 +23,7 @@ func TestReleaseChecksUseOnlyRequestedRepository(t *testing.T) {
 	calls := []string{}
 	lookupRelease = func(repo, tag string) (Release, error) {
 		calls = append(calls, repo)
-		return Release{Tag: "v1.3.0"}, nil
+		return Release{Tag: "v" + version}, nil
 	}
 	result, err := releases(defaults(), "app")
 	if err != nil {
