@@ -70,7 +70,7 @@ Object.assign(words.en,{customCdn:'Custom CDN',upstreamRelay:'TLS relay (host:po
 
 return view.extend({
 	handleSave:null, handleSaveApply:null, handleReset:null,
-	loadStyle:function(){var link=document.querySelector('link[data-pol-style]');if(link&&link.sheet)return Promise.resolve();return new Promise(function(resolve,reject){if(!link){link=node('link',{'rel':'stylesheet','href':L.resource('pol/style.css')+'?v=1.8.0','data-pol-style':'1'});document.head.appendChild(link);}link.addEventListener('load',resolve,{once:true});link.addEventListener('error',function(){reject(new Error('Unable to load Pol stylesheet'));},{once:true});});},
+	loadStyle:function(){var link=document.querySelector('link[data-pol-style]');if(link&&link.sheet)return Promise.resolve();return new Promise(function(resolve,reject){if(!link){link=node('link',{'rel':'stylesheet','href':L.resource('pol/style.css')+'?v=1.8.26','data-pol-style':'1'});document.head.appendChild(link);}link.addEventListener('load',resolve,{once:true});link.addEventListener('error',function(){reject(new Error('Unable to load Pol stylesheet'));},{once:true});});},
  load:function() { return Promise.all([api.settings(),api.status(),this.loadStyle()]); },
 	render:function(data) {
 		var self=this;
@@ -80,7 +80,7 @@ return view.extend({
 		this.media=window.matchMedia('(prefers-color-scheme: dark)');
 		this.media.addEventListener('change',function(){if(self.theme==='auto')self.draw();});
 		if (this.s.error) return node('div',{'class':'alert-message warning'},this.s.error);
-		if (!document.querySelector('link[data-pol-style]')) document.head.appendChild(node('link',{'rel':'stylesheet','href':L.resource('pol/style.css')+'?v=1.8.0','data-pol-style':'1'}));
+		if (!document.querySelector('link[data-pol-style]')) document.head.appendChild(node('link',{'rel':'stylesheet','href':L.resource('pol/style.css')+'?v=1.8.26','data-pol-style':'1'}));
 		this.root=node('div');this.root.addEventListener('input',function(ev){self.fitFields(ev.target);});this.root.addEventListener('change',function(ev){self.fitFields(ev.target);}); this.draw();if(document.fonts)document.fonts.ready.then(function(){self.fitFields();});
  var closeHelp=function(ev){if(self.activeHelp&&(!ev||!self.activeHelp.contains(ev.target))){self.activeHelp.open=false;self.activeHelp.querySelector('summary').setAttribute('aria-expanded','false');self.activeHelp=null;}};document.addEventListener('click',closeHelp);document.addEventListener('scroll',closeHelp,true);window.addEventListener('resize',closeHelp);document.addEventListener('keydown',function(ev){if(ev.key==='Escape'&&self.activeHelp){var summary=self.activeHelp.querySelector('summary');closeHelp();summary.focus();}});
 		poll.add(function(){ return api.status().then(function(v){self.status=v;if(self.flash&&self.flash.dataset.rpcFault==='true')self.message(''); self.paintStatus();self.paintGeoProgress(); if(self.tab==='reports'&&!self.pauseLogs) return self.fetchLogs();}).catch(function(e){self.message(e.message,true);}); },5);

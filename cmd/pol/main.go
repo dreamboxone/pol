@@ -19,7 +19,7 @@ import (
 	"time"
 )
 
-const version = "1.8.0"
+const version = "1.8.26"
 const settingsPath = "/etc/pol/settings.json"
 const corePath = "/usr/lib/pol/xray"
 
