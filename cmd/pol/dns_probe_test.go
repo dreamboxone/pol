@@ -9,3 +9,14 @@ func TestDNSProbeRejectsMalformedRequests(t *testing.T) {
 		}
 	}
 }
+
+func TestAsyncMethodsAreRegistered(t *testing.T) {
+	for _, method := range asyncMethods {
+		if _, ok := methods()[method]; !ok {
+			t.Fatalf("unregistered job %s", method)
+		}
+	}
+	if !contains(asyncMethods, "dnsProbe") || !contains(asyncMethods, "torBridges") || !contains(asyncMethods, "cfDelete") {
+		t.Fatal("new jobs missing")
+	}
+}

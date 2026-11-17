@@ -794,7 +794,7 @@ func main() {
 		}
 		var result any
 		var err error
-		if contains([]string{"deploy", "register", "update", "scan", "geoUpdate", "check", "torBridges", "cfDelete", "dnsProbe"}, method) {
+		if contains(asyncMethods, method) {
 			result, err = startJob(method, input)
 		} else {
 			result, err = rpc(method, input)

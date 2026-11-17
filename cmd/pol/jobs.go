@@ -13,6 +13,8 @@ import (
 	"time"
 )
 
+var asyncMethods = []string{"deploy", "register", "update", "scan", "geoUpdate", "check", "torBridges", "cfDelete", "dnsProbe"}
+
 type Job struct {
 	Target   string          `json:"target,omitempty"`
 	PID      int             `json:"pid,omitempty"`
@@ -107,7 +109,7 @@ func cancelJob() {
 }
 
 func executeJob(method, id string) {
-	if !contains([]string{"deploy", "register", "update", "scan", "geoUpdate", "check"}, method) || !regexp.MustCompile(`^[a-f0-9-]{36}$`).MatchString(id) {
+	if !contains(asyncMethods, method) || !regexp.MustCompile(`^[a-f0-9-]{36}$`).MatchString(id) {
 		os.Exit(1)
 	}
 	input := object{}
