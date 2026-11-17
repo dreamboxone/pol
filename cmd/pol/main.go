@@ -41,10 +41,14 @@ type WorkerProfile struct {
 }
 
 type Settings struct {
-	DNSServers []string            `json:"dnsServers"`
-	DNSHosts   map[string][]string `json:"dnsHosts"`
-	FakeSNIDNS bool                `json:"fakeSniDns"`
-	FakeDNS    bool                `json:"fakeDns"`
+	CustomCDN       object              `json:"customCdn,omitempty"`
+	UpstreamRelay   string              `json:"upstreamRelay,omitempty"`
+	BPBRouting      object              `json:"bpbRouting,omitempty"`
+	AntiSanctionDNS string              `json:"antiSanctionDns,omitempty"`
+	DNSServers      []string            `json:"dnsServers"`
+	DNSHosts        map[string][]string `json:"dnsHosts"`
+	FakeSNIDNS      bool                `json:"fakeSniDns"`
+	FakeDNS         bool                `json:"fakeDns"`
 
 	ServerlessMode string            `json:"serverlessMode"`
 	TorBridgeMode  string            `json:"torBridgeMode"`
@@ -666,6 +670,8 @@ func rpc(method string, input object) (any, error) {
 	case "geoUpdate":
 		kind, _ := input["kind"].(string)
 		return updateGeo(s, kind)
+	case "dnsProbe":
+		return probeDNS(input)
 	case "torBridges":
 		transport, _ := input["transport"].(string)
 		return fetchTorBridges(context.Background(), transport)
@@ -703,7 +709,7 @@ func rpc(method string, input object) (any, error) {
 }
 
 func methods() object {
-	return object{"torBridges": object{"transport": ""}, "scanControl": object{"action": ""}, "check": object{"site": ""}, "geo": object{}, "geoUpdate": object{"kind": ""}, "scan": object{"text": ""}, "status": object{}, "settings": object{}, "logs": object{"kind": ""}, "save": object{"settings": object{}}, "toggle": object{"enabled": false}, "import": object{"text": ""}, "register": object{"kind": ""}, "cfDelete": object{"token": "", "account": "", "name": "", "kind": ""}, "deploy": object{"token": "", "account": "", "name": "", "kind": ""}, "releases": object{"component": ""}, "update": object{"component": "", "tag": ""}}
+	return object{"dnsProbe": object{"request": object{}}, "torBridges": object{"transport": ""}, "scanControl": object{"action": ""}, "check": object{"site": ""}, "geo": object{}, "geoUpdate": object{"kind": ""}, "scan": object{"text": ""}, "status": object{}, "settings": object{}, "logs": object{"kind": ""}, "save": object{"settings": object{}}, "toggle": object{"enabled": false}, "import": object{"text": ""}, "register": object{"kind": ""}, "cfDelete": object{"token": "", "account": "", "name": "", "kind": ""}, "deploy": object{"token": "", "account": "", "name": "", "kind": ""}, "releases": object{"component": ""}, "update": object{"component": "", "tag": ""}}
 }
 
 func main() {
@@ -788,7 +794,7 @@ func main() {
 		}
 		var result any
 		var err error
-		if contains([]string{"deploy", "register", "update", "scan", "geoUpdate", "check", "torBridges", "cfDelete"}, method) {
+		if contains([]string{"deploy", "register", "update", "scan", "geoUpdate", "check", "torBridges", "cfDelete", "dnsProbe"}, method) {
 			result, err = startJob(method, input)
 		} else {
 			result, err = rpc(method, input)

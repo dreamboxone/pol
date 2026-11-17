@@ -38,6 +38,22 @@ func proxyOutbound(s Settings) (object, error) {
 		if sni == "" {
 			sni = s.Host
 		}
+		host := s.Host
+		if s.Variant != "fragment" {
+			if active, _ := s.CustomCDN["enabled"].(bool); active {
+				for _, raw := range asArray(s.CustomCDN["addresses"]) {
+					if raw == address {
+						if value, _ := s.CustomCDN["host"].(string); value != "" {
+							host = value
+						}
+						if value, _ := s.CustomCDN["sni"].(string); value != "" {
+							sni = value
+						}
+						break
+					}
+				}
+			}
+		}
 		tls := object{"serverName": sni, "fingerprint": s.TLSFingerprint, "alpn": []string{"http/1.1"}}
 		if s.ECHDNS != "" && s.Variant != "fragment" {
 			resolver := s.ECHDNS
@@ -50,11 +66,23 @@ func proxyOutbound(s Settings) (object, error) {
 			tls["echConfigList"] = "cloudflare-ech.com+" + resolver
 			tls["echSockopt"] = object{"dialerProxy": "direct"}
 		}
-		stream := object{"network": "ws", "security": "tls", "tlsSettings": tls, "wsSettings": object{"host": s.Host, "path": s.Path}, "sockopt": object{"tcpFastOpen": s.TCPFastOpen, "domainStrategy": s.DNSStrategy}}
+		stream := object{"network": "ws", "security": "tls", "tlsSettings": tls, "wsSettings": object{"host": host, "path": s.Path}, "sockopt": object{"tcpFastOpen": s.TCPFastOpen, "domainStrategy": s.DNSStrategy}}
 		if s.Variant == "fragment" {
 			stream["finalmask"] = fragment(s)
 		}
-		return object{"tag": "proxy", "protocol": "vless", "settings": object{"vnext": []any{object{"address": address, "port": s.Port, "users": []any{object{"id": s.UUID, "encryption": "none"}}}}}, "streamSettings": stream}, nil
+		port := s.Port
+		if s.Variant != "fragment" && s.UpstreamRelay != "" {
+			relayHost, relayPort, e := net.SplitHostPort(s.UpstreamRelay)
+			if e != nil {
+				return nil, fmt.Errorf("invalid TLS relay address")
+			}
+			n, e := strconv.Atoi(relayPort)
+			if e != nil || n < 1 || n > 65535 {
+				return nil, fmt.Errorf("invalid TLS relay port")
+			}
+			address, port = relayHost, n
+		}
+		return object{"tag": "proxy", "protocol": "vless", "settings": object{"vnext": []any{object{"address": address, "port": port, "users": []any{object{"id": s.UUID, "encryption": "none"}}}}}, "streamSettings": stream}, nil
 	case "warp":
 		a := s.Warp
 		if a == nil {
@@ -235,6 +263,9 @@ func buildConfig(s Settings) (object, error) {
 	if err := applyDNSConfiguration(cfg, s); err != nil {
 		return nil, err
 	}
+	if err := applyBPBRouting(cfg, s); err != nil {
+		return nil, err
+	}
 	return applyEndpointPool(cfg, s)
 }
 
@@ -412,6 +443,9 @@ func importConfig(s Settings, text string) (Settings, error) {
 	var data object
 	if err := json.Unmarshal([]byte(text), &data); err != nil {
 		return s, errors.New("paste a proxy URI, Pol settings, or Xray JSON")
+	}
+	if data["format"] == "bpb-settings" {
+		return importBPBProfile(s, data)
 	}
 	if _, ok := data["outbounds"]; ok {
 		s.Custom = json.RawMessage(text)

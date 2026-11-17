@@ -43,6 +43,13 @@ func applyEndpointPool(cfg object, s Settings) (object, error) {
 	var candidates []Settings
 	if s.Mode == "worker" {
 		addresses := append([]string{s.Address}, s.CleanIPs...)
+		if enabled, _ := s.CustomCDN["enabled"].(bool); enabled && s.Variant != "fragment" {
+			for _, raw := range asArray(s.CustomCDN["addresses"]) {
+				if address, ok := raw.(string); ok {
+					addresses = append(addresses, address)
+				}
+			}
+		}
 		ports := s.WorkerPorts
 		if len(ports) == 0 {
 			ports = []int{s.Port}
