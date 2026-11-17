@@ -30,7 +30,15 @@ func TestExplicitDirectAddressesBeforeFiltering(t *testing.T) {
 		t.Fatal(err)
 	}
 	rules := cfg["routing"].(map[string]any)["rules"].([]any)
-	if rules[2].(map[string]any)["outboundTag"] != "direct" || rules[3].(map[string]any)["outboundTag"] != "direct" || rules[4].(map[string]any)["outboundTag"] != "block" {
+	direct := findRuleWithValue(rules, "ip", "203.0.113.9")
+	blocked := -1
+	for i, raw := range rules {
+		if raw.(map[string]any)["outboundTag"] == "block" {
+			blocked = i
+			break
+		}
+	}
+	if direct < 0 || blocked < 0 || direct >= blocked {
 		t.Fatal("direct exceptions must precede filtering")
 	}
 	text := literalDirectRules(s.DirectIPs)

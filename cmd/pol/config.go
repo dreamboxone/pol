@@ -14,10 +14,16 @@ import (
 
 // OpenWrt adaptation of BPB-VPN's Xray configuration builder.
 func fragment(s Settings) object {
+	if rules := fragmentRules(s); len(rules) > 0 {
+		return object{"tcp": rules}
+	}
 	return object{"tcp": []any{object{"type": "fragment", "settings": object{"packets": "tlshello", "lengths": []string{s.FragmentLength}, "delays": []string{s.FragmentDelay}}}}}
 }
 
 func noise(s Settings) object {
+	if rules := noiseRules(s); len(rules) > 0 {
+		return object{"udp": []any{object{"type": "noise", "settings": object{"reset": s.NoiseReset, "noise": rules}}}}
+	}
 	return object{"udp": []any{object{"type": "noise", "settings": object{"reset": s.NoiseReset, "noise": []any{object{"rand": s.NoiseSize, "randRange": "0-255", "delay": s.NoiseDelay}}}}}}
 }
 
@@ -54,11 +60,15 @@ func proxyOutbound(s Settings) (object, error) {
 		if a == nil {
 			return nil, errors.New("WARP account is missing")
 		}
+		resolver := s.DNS
+		if ip := net.ParseIP(resolver); ip == nil || (s.DNSStrategy == "UseIPv4" && ip.To4() == nil) {
+			resolver = "1.1.1.1"
+		}
 		reserved := a.Reserved
 		if !s.WarpReserved {
 			reserved = []int{0, 0, 0}
 		}
-		out := object{"tag": "proxy", "protocol": "wireguard", "settings": object{"secretKey": a.PrivateKey, "address": []string{"172.16.0.2/32", a.IPv6}, "mtu": s.WarpMTU, "reserved": reserved, "peers": []any{object{"endpoint": s.Endpoint, "publicKey": a.PublicKey, "keepAlive": s.WarpKeepAlive}}}}
+		out := object{"tag": "proxy", "protocol": "wireguard", "settings": object{"noKernelTun": true, "remoteDNS": []string{resolver}, "secretKey": a.PrivateKey, "address": []string{"172.16.0.2/32", a.IPv6}, "mtu": s.WarpMTU, "reserved": reserved, "peers": []any{object{"endpoint": s.Endpoint, "publicKey": a.PublicKey, "keepAlive": s.WarpKeepAlive}}}}
 		if s.Variant == "obfuscated" {
 			out["streamSettings"] = object{"finalmask": noise(s)}
 		}
@@ -90,13 +100,16 @@ func proxyOutbound(s Settings) (object, error) {
 		}
 		return object{"tag": "proxy", "protocol": "masque", "settings": object{"address": host, "port": p}, "streamSettings": stream}, nil
 	case "serverless":
+		if s.ServerlessMode == "dns" {
+			return object{"tag": "proxy", "protocol": "freedom", "streamSettings": object{"sockopt": object{"domainStrategy": "ForceIP"}}}, nil
+		}
 		mask := fragment(s)
 		mask["udp"] = noise(s)["udp"]
 		return object{"tag": "proxy", "protocol": "freedom", "settings": object{}, "streamSettings": object{"sockopt": object{"domainStrategy": s.DNSStrategy}, "finalmask": mask}}, nil
 	case "tor":
-		return object{"tag": "proxy", "protocol": "socks", "settings": object{"servers": []any{object{"address": "127.0.0.1", "port": 9050}}}}, nil
+		return object{"tag": "proxy", "protocol": "socks", "settings": object{"servers": []any{object{"address": "127.0.0.1", "port": 24805}}}}, nil
 	case "psiphon":
-		return object{"tag": "proxy", "protocol": "socks", "settings": object{"servers": []any{object{"address": "127.0.0.1", "port": 10829}}}}, nil
+		return object{"tag": "proxy", "protocol": "socks", "settings": object{"servers": []any{object{"address": "127.0.0.1", "port": 24806}}}}, nil
 	}
 	return nil, errors.New("unsupported mode")
 }
@@ -128,6 +141,12 @@ func domainRule(domains []string, tag string) object {
 }
 
 func buildConfig(s Settings) (object, error) {
+	if s.Mode == "serverless" && s.ServerlessMode == "domain-fronting" {
+		return buildDomainFronting(s)
+	}
+	if s.Mode == "custom" {
+		return buildImportedConfig(s)
+	}
 	var outbounds []any
 	if s.Mode == "custom" {
 		var cfg object
@@ -165,6 +184,13 @@ func buildConfig(s Settings) (object, error) {
 		stream["sockopt"] = object{"dialerProxy": "proxy"}
 		outbounds = append(outbounds, chain)
 	}
+	if s.Mode != "tor" && s.Mode != "psiphon" && (s.ExitMode == "tor" || s.ExitMode == "psiphon") {
+		port := 24805
+		if s.ExitMode == "psiphon" {
+			port = 24806
+		}
+		outbounds = append(outbounds, object{"tag": "managed-exit", "protocol": "socks", "settings": object{"servers": []any{object{"address": "127.0.0.1", "port": port}}}})
+	}
 	outbounds = append(outbounds, object{"tag": "direct", "protocol": "freedom"}, object{"tag": "block", "protocol": "blackhole"}, object{"tag": "dns-out", "protocol": "dns"})
 	rules := []any{object{"type": "field", "inboundTag": []string{"api-in"}, "outboundTag": "api"}, object{"type": "field", "inboundTag": []string{"dns-in", "dns6-in"}, "outboundTag": "dns-out"}}
 	if s.RouteIran {
@@ -180,22 +206,42 @@ func buildConfig(s Settings) (object, error) {
 		rules = append(rules, domainRule(s.BlockDomains, "block"))
 	}
 	rules = append(rules, object{"type": "field", "ip": []string{"10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "127.0.0.0/8", "169.254.0.0/16", "::1/128", "fc00::/7", "fe80::/10"}, "outboundTag": "direct"})
-	if s.Mode == "tor" {
+	if s.Mode == "tor" || s.ExitMode == "tor" || (s.Mode == "worker" && (s.ExitMode == "" || s.ExitMode == "none")) {
 		rules = append(rules, object{"type": "field", "network": "udp", "outboundTag": "block"})
 	}
 	final := "proxy"
 	if s.Chain != "" {
 		final = "chain"
 	}
-	rules = append(rules, object{"type": "field", "network": "tcp,udp", "outboundTag": final})
+	if s.Mode != "tor" && s.Mode != "psiphon" && (s.ExitMode == "tor" || s.ExitMode == "psiphon") {
+		rules = append([]any{object{"type": "field", "inboundTag": []string{"exit-upstream"}, "outboundTag": final}}, rules...)
+		final = "managed-exit"
+	}
+	if s.Mode == "warp" || s.Mode == "masque" {
+		// Resolve tunnel destinations with Xray's configured DNS strategy before
+		// dispatch; a network catch-all bypasses IPIfNonMatch resolution.
+		rules = append(rules, object{"type": "field", "ip": []string{"0.0.0.0/0", "::/0"}, "outboundTag": final})
+	} else {
+		rules = append(rules, object{"type": "field", "network": "tcp,udp", "outboundTag": final})
+	}
 	ins := inbound()
 	if !s.Transparent {
 		ins = ins[4:]
 	}
-	return object{"stats": object{}, "api": object{"tag": "api", "services": []string{"StatsService"}}, "policy": object{"system": object{"statsInboundUplink": true, "statsInboundDownlink": true}}, "log": object{"loglevel": s.LogLevel}, "dns": object{"servers": []string{s.DNS}, "queryStrategy": s.DNSStrategy}, "inbounds": ins, "outbounds": outbounds, "routing": object{"domainStrategy": "IPIfNonMatch", "rules": rules}}, nil
+	if s.Mode != "tor" && s.Mode != "psiphon" && (s.ExitMode == "tor" || s.ExitMode == "psiphon") {
+		ins = append(ins, object{"tag": "exit-upstream", "listen": "127.0.0.1", "port": 24828, "protocol": "socks", "settings": object{"auth": "noauth", "udp": true}})
+	}
+	cfg := object{"stats": object{}, "api": object{"tag": "api", "services": []string{"StatsService"}}, "policy": object{"system": object{"statsInboundUplink": true, "statsInboundDownlink": true}}, "log": object{"loglevel": s.LogLevel}, "dns": object{"servers": []string{s.DNS}, "queryStrategy": s.DNSStrategy}, "inbounds": ins, "outbounds": outbounds, "routing": object{"domainStrategy": "IPIfNonMatch", "rules": rules}}
+	if err := applyDNSConfiguration(cfg, s); err != nil {
+		return nil, err
+	}
+	return applyEndpointPool(cfg, s)
 }
 
 func outboundFromURI(raw string) (object, error) {
+	if strings.HasPrefix(strings.TrimSpace(raw), "vmess://") {
+		return vmessURI(strings.TrimSpace(raw))
+	}
 	u, err := url.Parse(strings.TrimSpace(raw))
 	if err != nil || u.Hostname() == "" {
 		return nil, errors.New("invalid proxy URI")
@@ -208,6 +254,9 @@ func outboundFromURI(raw string) (object, error) {
 		}
 	}
 	q := u.Query()
+	if u.Scheme == "ss" || u.Scheme == "shadowsocks" || u.Scheme == "wireguard" || u.Scheme == "hysteria2" || u.Scheme == "hy2" {
+		return extendedProxyURI(u)
+	}
 	protocol := u.Scheme
 	settings := object{}
 	user := ""
@@ -218,7 +267,11 @@ func outboundFromURI(raw string) (object, error) {
 	}
 	switch protocol {
 	case "vless":
-		settings = object{"vnext": []any{object{"address": u.Hostname(), "port": p, "users": []any{object{"id": user, "encryption": "none", "flow": q.Get("flow")}}}}}
+		encryption := q.Get("encryption")
+		if encryption == "" {
+			encryption = "none"
+		}
+		settings = object{"vnext": []any{object{"address": u.Hostname(), "port": p, "users": []any{object{"id": user, "encryption": encryption, "flow": q.Get("flow")}}}}}
 	case "trojan":
 		settings = object{"servers": []any{object{"address": u.Hostname(), "port": p, "password": user}}}
 	case "socks", "socks5", "http", "https":
@@ -262,8 +315,20 @@ func outboundFromURI(raw string) (object, error) {
 		if security == "reality" {
 			tls["publicKey"] = q.Get("pbk")
 			tls["shortId"] = q.Get("sid")
+			if q.Get("spx") != "" {
+				tls["spiderX"] = q.Get("spx")
+			}
+			if q.Get("pqv") != "" {
+				tls["mldsa65Verify"] = q.Get("pqv")
+			}
 			stream["realitySettings"] = tls
 		} else {
+			if q.Get("pcs") != "" {
+				tls["pinnedPeerCertSha256"] = q.Get("pcs")
+			}
+			if q.Get("vcn") != "" {
+				tls["verifyPeerCertByName"] = q.Get("vcn")
+			}
 			stream["tlsSettings"] = tls
 		}
 	}
@@ -271,12 +336,27 @@ func outboundFromURI(raw string) (object, error) {
 	case "ws":
 		stream["wsSettings"] = object{"host": q.Get("host"), "path": q.Get("path")}
 	case "grpc":
-		stream["grpcSettings"] = object{"serviceName": q.Get("serviceName")}
+		stream["grpcSettings"] = object{"serviceName": q.Get("serviceName"), "authority": q.Get("authority"), "multiMode": q.Get("mode") == "multi"}
 	case "xhttp":
-		stream["xhttpSettings"] = object{"host": q.Get("host"), "path": q.Get("path"), "mode": "auto"}
+		mode := q.Get("mode")
+		if mode == "" {
+			mode = "auto"
+		}
+		settings := object{"host": q.Get("host"), "path": q.Get("path"), "mode": mode}
+		if q.Get("extra") != "" {
+			var extra object
+			if err := json.Unmarshal([]byte(q.Get("extra")), &extra); err != nil {
+				return nil, fmt.Errorf("invalid XHTTP extra settings")
+			}
+			settings["extra"] = extra
+		}
+		stream["xhttpSettings"] = settings
 	case "httpupgrade":
 		stream["httpupgradeSettings"] = object{"host": q.Get("host"), "path": q.Get("path")}
-	case "tcp":
+	case "tcp", "raw":
+		if q.Get("headerType") == "http" {
+			stream["rawSettings"] = object{"header": object{"type": "http", "request": object{"path": strings.Split(q.Get("path"), ","), "headers": object{"Host": strings.Split(q.Get("host"), ",")}}}}
+		}
 	default:
 		return nil, errors.New("unsupported transport")
 	}
@@ -291,7 +371,7 @@ func importConfig(s Settings, text string) (Settings, error) {
 			return s, errors.New("invalid VLESS URI")
 		}
 		q := u.Query()
-		if q.Get("type") == "ws" && q.Get("security") == "tls" {
+		if q.Get("type") == "ws" && q.Get("security") == "tls" && (strings.HasSuffix(q.Get("host"), ".workers.dev") || strings.HasSuffix(q.Get("host"), ".pages.dev")) {
 			s.Mode = "worker"
 			s.Host = q.Get("host")
 			if s.Host == "" {
@@ -403,17 +483,7 @@ func networkStart(s Settings) error {
 	if _, err := net.InterfaceByName(s.LAN); err != nil {
 		return err
 	}
-	if s.Mode == "tor" || s.Mode == "psiphon" {
-		port := "9050"
-		if s.Mode == "psiphon" {
-			port = "10829"
-		}
-		c, e := net.DialTimeout("tcp", "127.0.0.1:"+port, time.Second)
-		if e != nil {
-			return fmt.Errorf("%s SOCKS service is not listening on %s", s.Mode, port)
-		}
-		c.Close()
-	}
+
 	_ = networkStop()
 	if err := atomicWrite(runtimeDir+"/network-owned", []byte("pol\n"), 0600); err != nil {
 		return err

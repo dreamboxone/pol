@@ -19,3 +19,15 @@ under the SIL Open Font License 1.1; the font's OFL.txt is included.
 
 DNS Rebind exception ownership behavior and direct-routing controls follow
 Zirgozar by dreamboxone (AGPL-3.0-or-later); see licenses/Zirgozar-AGPL-3.0.txt.
+
+Portable scanner, Psiphon exit and networking modules in third_party/bpb are
+from BPB-VPN revision 2b5dd87d7a000c2ef13307ee315fae14441b4f3a, GPL-3.0.
+Their original comments and module dependency attributions are retained.
+
+Tor bridge transports in third_party/lyrebird are from The Tor Project,
+Lyrebird 0.10.0, revision 59ac7e400c384773f5584dbe366516ad04a33d9f.
+Original copyright and BSD/GPL license files are retained in that directory.
+
+The domain-fronting template is patterniha MITM-DomainFronting v23 (GPL-3.0),
+as adapted by BPB-VPN. Its original __Credits__ metadata is retained in
+/usr/share/pol/domain-fronting.json and the source template.

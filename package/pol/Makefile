@@ -2,7 +2,7 @@ include $(TOPDIR)/rules.mk
 POL_SOURCE_DIR?=$(abspath $(CURDIR)/../..)
 
 PKG_NAME:=pol
-PKG_VERSION:=1.5.0
+PKG_VERSION:=1.8.0
 PKG_RELEASE:=1
 POL_VIEW_VERSION:=$(subst .,_,$(PKG_VERSION))
 PKG_LICENSE:=GPL-3.0-only AGPL-3.0-or-later
@@ -15,7 +15,7 @@ define Package/pol
   CATEGORY:=Network
   TITLE:=Pol VPN for OpenWrt
   CONFLICTS:=pol-core
-  DEPENDS:=+luci-base +rpcd +ca-bundle +ip-full +nftables +kmod-nft-tproxy
+  DEPENDS:=+luci-base +rpcd +ca-bundle +ip-full +nftables +kmod-nft-tproxy +tor +tor-geoip
 endef
 
 define Package/pol/conffiles
@@ -35,7 +35,12 @@ define Package/pol/install
 	$(INSTALL_DIR) $(1)/usr/libexec/rpcd
 	$(INSTALL_BIN) $(POL_SOURCE_DIR)/build/bin/$(ARCH)/pol $(1)/usr/libexec/rpcd/pol
 	$(INSTALL_DIR) $(1)/usr/lib/pol
+	$(INSTALL_BIN) $(POL_SOURCE_DIR)/build/bin/$(ARCH)/psiphon $(1)/usr/lib/pol/psiphon
+	$(INSTALL_BIN) $(POL_SOURCE_DIR)/build/bin/$(ARCH)/lyrebird $(1)/usr/lib/pol/lyrebird
 	$(INSTALL_BIN) $(POL_SOURCE_DIR)/prebuilt/$(ARCH)/xray $(1)/usr/lib/pol/xray
+	$(INSTALL_DIR) $(1)/usr/share/licenses/bpb $(1)/usr/share/licenses/lyrebird
+	$(CP) $(POL_SOURCE_DIR)/third_party/bpb/LICENSE $(1)/usr/share/licenses/bpb/
+	$(CP) $(POL_SOURCE_DIR)/third_party/lyrebird/LICENSE $(POL_SOURCE_DIR)/third_party/lyrebird/LICENSE-GPL3.txt $(1)/usr/share/licenses/lyrebird/
 	$(INSTALL_DIR) $(1)/usr/share/licenses/pol
 	$(CP) $(POL_SOURCE_DIR)/LICENSE $(POL_SOURCE_DIR)/NOTICE $(POL_SOURCE_DIR)/licenses/Zirgozar-AGPL-3.0.txt $(POL_SOURCE_DIR)/licenses/Xray-MPL-2.0.txt $(1)/usr/share/licenses/pol/
 endef

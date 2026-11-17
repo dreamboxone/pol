@@ -59,7 +59,7 @@ func TestDNSAndPrivateNetworkRulesPrecedeCatchAll(t *testing.T) {
 		t.Fatal(err)
 	}
 	rules := cfg["routing"].(map[string]any)["rules"].([]any)
-	for i, want := range []string{"api", "dns-out", "direct", "block", "direct", "proxy"} {
+	for i, want := range []string{"api", "dns-out", "proxy", "direct", "direct", "block", "direct", "proxy"} {
 		if rules[i].(map[string]any)["outboundTag"] != want {
 			t.Fatalf("rule %d has wrong precedence", i)
 		}
@@ -283,6 +283,145 @@ func TestRouterUptimeParsing(t *testing.T) {
 	} {
 		if got := parseUptime(tc.value); got != tc.want {
 			t.Errorf("parseUptime(%q) = %d, want %d", tc.value, got, tc.want)
+		}
+	}
+}
+
+func TestImportedConfigPreservesRoutingGraph(t *testing.T) {
+	s := defaults()
+	s.Mode = "custom"
+	s.Custom = json.RawMessage(`{"dns":{"servers":["https://dns.example/dns-query"]},"routing":{"domainStrategy":"AsIs","balancers":[{"tag":"pool","selector":["edge"]}],"rules":[{"domain":["domain:example.com"],"balancerTag":"pool"}]},"outbounds":[{"tag":"edge","protocol":"freedom"}],"observatory":{"subjectSelector":["edge"]}}`)
+	cfg, err := buildConfig(s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	routing := cfg["routing"].(map[string]any)
+	if routing["domainStrategy"] != "AsIs" || len(routing["balancers"].([]any)) != 1 {
+		t.Fatal("imported routing was discarded")
+	}
+	if cfg["outbounds"].([]any)[0].(map[string]any)["tag"] != "edge" {
+		t.Fatal("outbound graph tag changed")
+	}
+	if cfg["dns"].(map[string]any)["servers"].([]any)[0] != "https://dns.example/dns-query" {
+		t.Fatal("imported DNS was discarded")
+	}
+	if cfg["observatory"] == nil {
+		t.Fatal("observatory discarded")
+	}
+}
+
+func TestManagedExitDoesNotLoopBackIntoItself(t *testing.T) {
+	for _, mode := range []string{"tor", "psiphon"} {
+		s := defaults()
+		s.Mode = "serverless"
+		s.ExitMode = mode
+		cfg, err := buildConfig(s)
+		if err != nil {
+			t.Fatal(err)
+		}
+		rules := cfg["routing"].(map[string]any)["rules"].([]any)
+		if rules[0].(map[string]any)["outboundTag"] != "proxy" {
+			t.Fatal("exit upstream does not use the underlying connection")
+		}
+		if rules[len(rules)-1].(map[string]any)["outboundTag"] != "managed-exit" {
+			t.Fatal("client traffic bypasses final exit")
+		}
+		found := false
+		for _, raw := range cfg["inbounds"].([]any) {
+			in := raw.(map[string]any)
+			if in["tag"] == "exit-upstream" {
+				found = true
+				if in["listen"] != "127.0.0.1" {
+					t.Fatal("upstream listener is exposed to LAN")
+				}
+			}
+		}
+		if !found {
+			t.Fatal("missing upstream listener")
+		}
+	}
+}
+
+func TestVlessXHTTPKeepsTransportOptions(t *testing.T) {
+	out, err := outboundFromURI("vless://12345678-1234-1234-1234-123456789abc@vpn.example:443?type=xhttp&security=tls&mode=packet-up&host=front.example&path=%2Ftest&fp=firefox")
+	if err != nil {
+		t.Fatal(err)
+	}
+	stream := out["streamSettings"].(map[string]any)
+	if stream["xhttpSettings"].(map[string]any)["mode"] != "packet-up" {
+		t.Fatal("XHTTP mode lost")
+	}
+	s, err := importConfig(defaults(), "vless://12345678-1234-1234-1234-123456789abc@vpn.example:443?type=ws&security=tls&host=front.example&fp=firefox")
+	if err != nil || s.Mode != "custom" {
+		t.Fatal("generic VLESS link was incorrectly treated as a Worker")
+	}
+}
+func TestAdditionalProxyImports(t *testing.T) {
+	for _, uri := range []string{
+		"ss://YWVzLTEyOC1nY206c2VjcmV0@vpn.example:8388",
+		"wireguard://AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAE%3D@vpn.example:2408?publickey=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAE%3D&address=172.16.0.2%2F32&reserved=1,2,3",
+		"hysteria2://secret@vpn.example:443?sni=front.example&obfs=salamander&obfs-password=test&mport=443,8443",
+	} {
+		s, err := importConfig(defaults(), uri)
+		if err != nil {
+			t.Fatal(err)
+		}
+		cfg, err := buildConfig(s)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(cfg["outbounds"].([]any)) < 1 {
+			t.Fatal("proxy missing")
+		}
+		if core := os.Getenv("POL_TEST_XRAY"); core != "" {
+			data, _ := json.Marshal(cfg)
+			path := filepath.Join(t.TempDir(), "import.json")
+			if e := os.WriteFile(path, data, 0600); e != nil {
+				t.Fatal(e)
+			}
+			if out, e := exec.Command(core, "run", "-test", "-config", path).CombinedOutput(); e != nil {
+				t.Fatalf("import rejected: %s", out)
+			}
+		}
+	}
+}
+
+func findRuleWithValue(rules []any, key, value string) int {
+	for i, raw := range rules {
+		r := raw.(map[string]any)
+		switch values := r[key].(type) {
+		case []string:
+			for _, v := range values {
+				if v == value {
+					return i
+				}
+			}
+		case []any:
+			for _, v := range values {
+				if v == value {
+					return i
+				}
+			}
+		}
+	}
+	return -1
+}
+
+func TestWarpUsesIsolatedTunAndIPv4DNS(t *testing.T) {
+	s := defaults()
+	s.Mode = "warp"
+	s.Warp = &WarpAccount{PrivateKey: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAE=", PublicKey: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAE=", IPv6: "2606:4700::1/128"}
+	out, err := proxyOutbound(s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	settings := out["settings"].(map[string]any)
+	if settings["noKernelTun"] != true {
+		t.Fatal("WARP must not install kernel routes")
+	}
+	for _, server := range settings["remoteDNS"].([]string) {
+		if strings.Contains(server, ":") {
+			t.Fatal("WARP bootstrap unexpectedly requires host IPv6")
 		}
 	}
 }

@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"crypto/ecdh"
 	"crypto/ecdsa"
 	"crypto/elliptic"
@@ -25,6 +26,10 @@ import (
 var httpClient = &http.Client{Timeout: 35 * time.Second}
 
 func requestJSON(method, address string, headers map[string]string, body any) (object, error) {
+	return requestJSONContext(context.Background(), method, address, headers, body)
+}
+
+func requestJSONContext(ctx context.Context, method, address string, headers map[string]string, body any) (object, error) {
 	var reader io.Reader
 	if body != nil {
 		b, err := json.Marshal(body)
@@ -33,7 +38,7 @@ func requestJSON(method, address string, headers map[string]string, body any) (o
 		}
 		reader = bytes.NewReader(b)
 	}
-	req, err := http.NewRequest(method, address, reader)
+	req, err := http.NewRequestWithContext(ctx, method, address, reader)
 	if err != nil {
 		return nil, err
 	}
@@ -141,6 +146,10 @@ func registerAccount(s Settings, kind string) (Settings, error) {
 		}
 		s.Endpoint = offeredEndpoint(peer, "162.159.198.1", 443)
 		s.Mode = "masque"
+		s.DNS = defaultDNSForMode("masque")
+		if s.SNI == "" || s.SNI == "engage.cloudflareclient.com" {
+			s.SNI = "speed.cloudflare.com"
+		}
 	} else {
 		cfg := mapAt(reg, "config")
 		iface := mapAt(mapAt(cfg, "interface"), "addresses")
@@ -165,6 +174,7 @@ func registerAccount(s Settings, kind string) (Settings, error) {
 			return s, errors.New("incomplete WARP response")
 		}
 		s.Mode = "warp"
+		s.DNS = defaultDNSForMode("warp")
 		s.Endpoint = offeredEndpoint(peer, "162.159.192.1", 2408)
 	}
 	event("Registered " + kind + " account")
@@ -233,7 +243,7 @@ func deployWorker(s Settings, input object) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	env, _ := json.Marshal(object{"v": 1, "id": uuid, "pips": []string{}, "fb": "https://www.cloudflare.com/"})
+	env, _ := json.Marshal(object{"v": 1, "id": uuid, "pips": s.WorkerProxyIPs, "fb": s.WorkerFallback})
 	script, err := os.ReadFile("/usr/share/pol/worker.js")
 	if err != nil {
 		return nil, err
@@ -284,6 +294,14 @@ func deployWorker(s Settings, input object) (any, error) {
 	s.UUID = uuid
 	s.Port = 443
 	s.Path = "/?ed=2560"
+	rememberWorker(&s)
+	for i := range s.WorkerProfiles {
+		if s.WorkerProfiles[i].Host == s.Host {
+			s.WorkerProfiles[i].AccountID = account
+			s.WorkerProfiles[i].Project = name
+			s.WorkerProfiles[i].Kind = "worker"
+		}
+	}
 	if err = change(s); err != nil {
 		return nil, fmt.Errorf("Worker created at %s, but local settings failed: %w", s.Host, err)
 	}

@@ -149,7 +149,7 @@ type UpdateProgress struct {
 
 func reportUpdateProgress(phase string, received, total int64) {
 	j := readJob()
-	if (j.Method != "update" && j.Method != "geoUpdate") || j.State != "running" {
+	if (j.Method != "update" && j.Method != "geoUpdate" && j.Method != "scan") || j.State != "running" {
 		return
 	}
 	p := UpdateProgress{ID: j.ID, Phase: phase, Received: received, Total: total}

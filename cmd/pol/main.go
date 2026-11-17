@@ -19,7 +19,7 @@ import (
 	"time"
 )
 
-const version = "1.5.0"
+const version = "1.8.0"
 const settingsPath = "/etc/pol/settings.json"
 const corePath = "/usr/lib/pol/xray"
 
@@ -27,7 +27,49 @@ var runtimeDir = "/var/run/pol"
 
 type object = map[string]any
 
+type WorkerProfile struct {
+	Name      string `json:"name"`
+	Kind      string `json:"kind"`
+	AccountID string `json:"accountId,omitempty"`
+	Project   string `json:"project,omitempty"`
+	Host      string `json:"host"`
+	UUID      string `json:"uuid"`
+	Address   string `json:"address"`
+	Port      int    `json:"port"`
+	Path      string `json:"path"`
+	WorkerSNI string `json:"workerSni"`
+}
+
 type Settings struct {
+	DNSServers []string            `json:"dnsServers"`
+	DNSHosts   map[string][]string `json:"dnsHosts"`
+	FakeSNIDNS bool                `json:"fakeSniDns"`
+	FakeDNS    bool                `json:"fakeDns"`
+
+	ServerlessMode string            `json:"serverlessMode"`
+	TorBridgeMode  string            `json:"torBridgeMode"`
+	DNSByMode      map[string]string `json:"dnsByMode"`
+	EndpointByMode map[string]string `json:"endpointByMode"`
+	BestPing       bool              `json:"bestPing"`
+	CleanIPs       []string          `json:"cleanIps"`
+	Endpoints      []string          `json:"endpoints"`
+	WorkerPorts    []int             `json:"workerPorts"`
+	ProbeInterval  int               `json:"probeInterval"`
+
+	Fragments           []FragmentRule `json:"fragments"`
+	UDPNoises           []NoiseRule    `json:"udpNoises"`
+	MasqueFragments     []FragmentRule `json:"masqueFragments"`
+	MasqueNoises        []NoiseRule    `json:"masqueNoises"`
+	ServerlessFragments []FragmentRule `json:"serverlessFragments"`
+	ServerlessNoises    []NoiseRule    `json:"serverlessNoises"`
+
+	WorkerProfiles []WorkerProfile `json:"workerProfiles"`
+	WorkerProxyIPs []string        `json:"workerProxyIps"`
+	WorkerFallback string          `json:"workerFallback"`
+
+	ExitMode          string          `json:"exitMode"`
+	ExitRegion        string          `json:"exitRegion"`
+	TorBridges        []string        `json:"torBridges"`
 	DirectIPs         []string        `json:"directIps"`
 	RebindDomains     []string        `json:"rebindDomains"`
 	GeoDirectory      string          `json:"geoDirectory"`
@@ -90,7 +132,7 @@ type MasqueAccount struct {
 }
 
 func defaults() Settings {
-	return Settings{DirectIPs: []string{}, RebindDomains: []string{"banksepah.ir", "cbi.ir", "ebanksepah.ir", "esata.ir", "gov.ir", "medu.ir", "qmb.ir", "tamin.ir", "meedc.net", "ntp.faraborddi.com", "qmehr724.com"}, GeoDirectory: "/etc/pol/geo", GeoAuto: "disabled", GeoIPUpdate: true, GeoSiteUpdate: true, IranDNS: "178.22.122.100", GeoIPURL: geoBase + "geoip.dat", GeoSiteURL: geoBase + "geosite.dat", Mode: "worker", Variant: "normal", Port: 443, Path: "/?ed=2560", DNS: "https://1.1.1.1/dns-query", LAN: "br-lan", Transparent: true, FragmentLength: "100-200", FragmentDelay: "1-1", TLSFingerprint: "chrome", DNSStrategy: "UseIPv4", NoiseSize: "10-30", NoiseDelay: "1-3", NoiseReset: "5-10", WarpMTU: 1280, WarpKeepAlive: 30, WarpReserved: true, Endpoint: "162.159.192.1:2408", Transport: "h2", SNI: "engage.cloudflareclient.com", LogLevel: "warning", ReleaseRepository: "dreamboxone/pol", BypassDomains: []string{}, BlockDomains: []string{}}
+	return Settings{ProbeInterval: 30, TorBridgeMode: "auto", DirectIPs: []string{}, RebindDomains: []string{"banksepah.ir", "cbi.ir", "ebanksepah.ir", "esata.ir", "gov.ir", "medu.ir", "qmb.ir", "tamin.ir", "meedc.net", "ntp.faraborddi.com", "qmehr724.com"}, GeoDirectory: "/etc/pol/geo", GeoAuto: "disabled", GeoIPUpdate: true, GeoSiteUpdate: true, IranDNS: "178.22.122.100", GeoIPURL: geoBase + "geoip.dat", GeoSiteURL: geoBase + "geosite.dat", Mode: "worker", Variant: "normal", Port: 443, Path: "/?ed=2560", DNS: "https://8.8.8.8/dns-query", LAN: "br-lan", Transparent: true, FragmentLength: "100-200", FragmentDelay: "1-1", TLSFingerprint: "chrome", DNSStrategy: "UseIPv4", NoiseSize: "10-30", NoiseDelay: "1-3", NoiseReset: "5-10", WarpMTU: 1280, WarpKeepAlive: 30, WarpReserved: true, Endpoint: "162.159.192.1:2408", Transport: "h2", SNI: "speed.cloudflare.com", LogLevel: "warning", ReleaseRepository: "dreamboxone/pol", BypassDomains: []string{}, BlockDomains: []string{}}
 }
 
 func load() (Settings, error) {
@@ -101,6 +143,33 @@ func load() (Settings, error) {
 	}
 	err = json.Unmarshal(b, &s)
 	if err == nil {
+		if s.ProbeInterval == 0 {
+			s.ProbeInterval = 30
+		}
+		if s.SNI == "engage.cloudflareclient.com" {
+			s.SNI = "speed.cloudflare.com"
+		}
+		rememberWorker(&s)
+		if s.EndpointByMode == nil {
+			s.EndpointByMode = map[string]string{"warp": "162.159.192.1:2408", "masque": "162.159.198.1:443"}
+			// Preserve the legacy shared endpoint when it belongs to an inactive mode.
+			if _, port, e := net.SplitHostPort(s.Endpoint); e == nil {
+				if port == "443" || port == "8443" {
+					s.EndpointByMode["masque"] = s.Endpoint
+				} else {
+					s.EndpointByMode["warp"] = s.Endpoint
+				}
+			}
+		}
+		if s.Mode == "warp" || s.Mode == "masque" {
+			s.EndpointByMode[s.Mode] = s.Endpoint
+		}
+		if s.DNSByMode == nil {
+			s.DNSByMode = map[string]string{}
+		}
+		if s.DNSByMode[s.Mode] == "" {
+			s.DNSByMode[s.Mode] = s.DNS
+		}
 		geoDir = s.GeoDirectory
 	}
 	return s, err
@@ -132,6 +201,17 @@ func atomicWrite(path string, b []byte, mode os.FileMode) error {
 }
 
 func persist(s Settings) error {
+	if s.EndpointByMode == nil {
+		s.EndpointByMode = map[string]string{}
+	}
+	if s.Mode == "warp" || s.Mode == "masque" {
+		s.EndpointByMode[s.Mode] = s.Endpoint
+	}
+	rememberWorker(&s)
+	if s.DNSByMode == nil {
+		s.DNSByMode = map[string]string{}
+	}
+	s.DNSByMode[s.Mode] = s.DNS
 	b, err := json.MarshalIndent(s, "", "  ")
 	if err != nil {
 		return err
@@ -219,6 +299,21 @@ func parseUptime(value string) int64 {
 }
 
 func validate(s Settings, complete bool) error {
+	if !contains([]string{"", "packet", "dns", "domain-fronting"}, s.ServerlessMode) {
+		return errors.New("invalid serverless mode")
+	}
+	if s.Mode != "custom" && s.Chain != "" && (s.ExitMode == "tor" || s.ExitMode == "psiphon") {
+		return errors.New("choose only one final exit")
+	}
+	if err := validateMasks(s); err != nil {
+		return err
+	}
+	if err := validateSelection(s); err != nil {
+		return err
+	}
+	if complete && exitMode(s) == "tor" && s.TorBridgeMode == "custom" && len(s.TorBridges) == 0 {
+		return errors.New("add custom Tor bridges first")
+	}
 	if len(s.DirectIPs) > 1024 || len(s.RebindDomains) > 1024 {
 		return errors.New("routing list is too large")
 	}
@@ -257,6 +352,12 @@ func validate(s Settings, complete bool) error {
 	}
 	if !contains([]string{"debug", "info", "warning", "error", "none"}, s.LogLevel) {
 		return errors.New("invalid log level")
+	}
+	if !contains([]string{"", "none", "tor", "psiphon"}, s.ExitMode) {
+		return errors.New("invalid exit mode")
+	}
+	if s.ExitRegion != "" && !regexp.MustCompile(`^[A-Z]{2}$`).MatchString(s.ExitRegion) {
+		return errors.New("invalid exit country")
 	}
 	if !contains([]string{"h2", "h3"}, s.Transport) {
 		return errors.New("invalid MASQUE transport")
@@ -344,6 +445,11 @@ func prepare(s Settings) error {
 	geoDir = s.GeoDirectory
 	if err := prepareIran(s); err != nil {
 		return err
+	}
+	if s.Mode == "serverless" && s.ServerlessMode == "domain-fronting" {
+		if err := ensureFrontingCA(); err != nil {
+			return err
+		}
 	}
 	cfg, err := buildConfig(s)
 	if err != nil {
@@ -467,12 +573,38 @@ func rpc(method string, input object) (any, error) {
 		if _, e := exec.LookPath("apk"); e == nil {
 			manager = "apk"
 		}
-		return object{"version": version, "uptime": routerUptime(), "features": object{"siteChecks": true, "routingLists": true, "geoManager": true}, "coreVersion": cachedCoreVersion(), "usage": usageSummary(trafficLoad(), routerTime()), "connection": readConnection(), "server": serverName(s), "running": running(), "enabled": s.Enabled, "mode": s.Mode, "transparent": s.Transparent, "firewall": nerr == nil, "packageManager": manager, "job": readJob()}, nil
+		connection := readConnection()
+		active := s.Enabled && running()
+		exit := readExitState()
+		if !active {
+			connection.Connected = false
+		}
+		if mode := exitMode(s); mode == "tor" || mode == "psiphon" {
+			if exit["engine"] != mode || exit["ready"] != true {
+				connection.Connected = false
+			}
+		}
+		return object{"exit": exit, "version": version, "uptime": routerUptime(), "features": object{"siteChecks": true, "routingLists": true, "geoManager": true, "nativeExits": true, "automaticScanner": true, "workerProfiles": true}, "coreVersion": cachedCoreVersion(), "usage": usageSummary(trafficLoad(), routerTime()), "connection": connection, "server": serverName(s), "running": running(), "enabled": s.Enabled, "mode": s.Mode, "transparent": s.Transparent, "firewall": nerr == nil, "packageManager": manager, "job": readJob()}, nil
 	case "save":
 		b, _ := json.Marshal(input["settings"])
 		next := s
 		if err = json.Unmarshal(b, &next); err != nil {
 			return nil, err
+		}
+		if next.Mode != s.Mode {
+			fields, _ := input["settings"].(map[string]any)
+			if _, explicit := fields["endpoint"]; !explicit && (next.Mode == "warp" || next.Mode == "masque") {
+				next.Endpoint = next.EndpointByMode[next.Mode]
+				if next.Endpoint == "" {
+					next.Endpoint = map[string]string{"warp": "162.159.192.1:2408", "masque": "162.159.198.1:443"}[next.Mode]
+				}
+			}
+			if _, explicit := fields["dns"]; !explicit {
+				next.DNS = defaultDNSForMode(next.Mode)
+				if saved := next.DNSByMode[next.Mode]; saved != "" {
+					next.DNS = saved
+				}
+			}
 		}
 		if next.Mode != s.Mode || next.Transport != s.Transport {
 			next.Variant = "normal"
@@ -534,6 +666,12 @@ func rpc(method string, input object) (any, error) {
 	case "geoUpdate":
 		kind, _ := input["kind"].(string)
 		return updateGeo(s, kind)
+	case "torBridges":
+		transport, _ := input["transport"].(string)
+		return fetchTorBridges(context.Background(), transport)
+	case "scanControl":
+		action, _ := input["action"].(string)
+		return controlScan(action)
 	case "scan":
 		text, _ := input["text"].(string)
 		return scan(s, text)
@@ -547,7 +685,12 @@ func rpc(method string, input object) (any, error) {
 			return nil, e
 		}
 		return object{"ok": true}, nil
+	case "cfDelete":
+		return deleteDeployment(s, input)
 	case "deploy":
+		if input["kind"] == "pages" {
+			return deployPages(s, input)
+		}
 		return deployWorker(s, input)
 	case "releases":
 		component, _ := input["component"].(string)
@@ -560,7 +703,7 @@ func rpc(method string, input object) (any, error) {
 }
 
 func methods() object {
-	return object{"check": object{"site": ""}, "geo": object{}, "geoUpdate": object{"kind": ""}, "scan": object{"text": ""}, "status": object{}, "settings": object{}, "logs": object{"kind": ""}, "save": object{"settings": object{}}, "toggle": object{"enabled": false}, "import": object{"text": ""}, "register": object{"kind": ""}, "deploy": object{"token": "", "account": "", "name": ""}, "releases": object{"component": ""}, "update": object{"component": "", "tag": ""}}
+	return object{"torBridges": object{"transport": ""}, "scanControl": object{"action": ""}, "check": object{"site": ""}, "geo": object{}, "geoUpdate": object{"kind": ""}, "scan": object{"text": ""}, "status": object{}, "settings": object{}, "logs": object{"kind": ""}, "save": object{"settings": object{}}, "toggle": object{"enabled": false}, "import": object{"text": ""}, "register": object{"kind": ""}, "cfDelete": object{"token": "", "account": "", "name": "", "kind": ""}, "deploy": object{"token": "", "account": "", "name": "", "kind": ""}, "releases": object{"component": ""}, "update": object{"component": "", "tag": ""}}
 }
 
 func main() {
@@ -626,7 +769,7 @@ func main() {
 			cancelJob()
 			_, _ = run(12*time.Second, "/etc/init.d/pol", "stop")
 		}
-		if !contains([]string{"settings", "status", "logs", "releases", "geo"}, method) {
+		if !contains([]string{"settings", "status", "logs", "releases", "geo", "scanControl"}, method) {
 			f, err := os.OpenFile("/var/lock/pol.lock", os.O_CREATE|os.O_RDWR, 0600)
 			if err != nil {
 				_ = json.NewEncoder(os.Stdout).Encode(object{"error": err.Error()})
@@ -645,7 +788,7 @@ func main() {
 		}
 		var result any
 		var err error
-		if contains([]string{"deploy", "register", "update", "scan", "geoUpdate", "check"}, method) {
+		if contains([]string{"deploy", "register", "update", "scan", "geoUpdate", "check", "torBridges", "cfDelete"}, method) {
 			result, err = startJob(method, input)
 		} else {
 			result, err = rpc(method, input)
@@ -658,6 +801,26 @@ func main() {
 	}
 	var err error
 	switch os.Args[1] {
+	case "exit-run":
+		s, e := load()
+		if e != nil {
+			err = e
+		} else {
+			err = runExit(s)
+		}
+	case "prepare-exit":
+		var s Settings
+		s, err = load()
+		if err == nil {
+			err = prepareExit(s)
+		}
+	case "exit-mode":
+		s, e := load()
+		if e != nil {
+			err = e
+		} else {
+			fmt.Println(exitMode(s))
+		}
 	case "prepare":
 		var s Settings
 		s, err = load()
@@ -699,4 +862,17 @@ func inputCommand(name string, args []string, input string) error {
 		return fmt.Errorf("%s: %s: %w", name, string(b), err)
 	}
 	return nil
+}
+
+func defaultDNSForMode(mode string) string {
+	switch mode {
+	case "warp", "masque":
+		return "1.1.1.1"
+	case "tor":
+		return "udp://127.0.0.1:24818"
+	case "psiphon":
+		return "udp://127.0.0.1:24819"
+	default:
+		return "https://8.8.8.8/dns-query"
+	}
 }

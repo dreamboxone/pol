@@ -70,7 +70,9 @@ func TestIranRulesPrecedeTunnelAndFiltering(t *testing.T) {
 		t.Fatal(err)
 	}
 	routing := cfg["routing"].(object)["rules"].([]any)
-	if routing[2].(object)["outboundTag"] != "direct" || routing[4].(object)["outboundTag"] != "block" {
+	iran := findRuleWithValue(routing, "domain", "geosite:ir")
+	blocked := findRuleWithValue(routing, "domain", "domain:example.ir")
+	if iran < 0 || blocked < 0 || iran >= blocked || routing[iran].(object)["outboundTag"] != "direct" {
 		t.Fatal("Iran split must precede domain filtering")
 	}
 	resolver := iranResolverConfig(s, []string{"example.ir"})

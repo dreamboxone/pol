@@ -13,17 +13,17 @@ An OpenWrt VPN client with a bilingual LuCI interface, based on [BPB-VPN](https:
 - TLS fingerprint, Worker SNI, ECH (normal Worker mode), TCP Fast Open and DNS IPv4/IPv6 preference
 - Tunable UDP noise, WARP MTU, keepalive and reserved bytes
 - Real-core HTTPS endpoint scanning with manual candidate lists and explicit result selection
-- VLESS, Trojan, SOCKS and HTTP URI import; Xray JSON outbound import
+- VLESS, Trojan, SOCKS and HTTP URI import; Xray JSON import preserving DNS, routing, balancers and outbound graphs
 - IPv4 and IPv6 LAN routing, DNS interception, direct and blocked domains, and a chain proxy
 - Live application and core reports with filtering and download
 - One complete `pol` package including the application, LuCI and Xray, in IPK or APK format
 - Separate application and core updates with release asset SHA-256 verification
 
-Tor and Psiphon modes connect to separately configured local SOCKS services.
+Tor and Psiphon engines are managed by Pol. The package bundles Psiphon and Lyrebird; OpenWrt supplies Tor and its GeoIP database. Select a final exit to layer Tor or Psiphon over the underlying connection.
 
 ## Router resources
 
-Plan for at least 256 MB of router RAM (512 MB or more for full routing data and more concurrent clients), and 150 MB free storage (250 MB recommended for routing data and update headroom). The installed application, LuCI and bundled core use approximately 41–45 MB depending on architecture. The Iranian Lite routing files take about 2 MB; full files vary by provider. Runtime RAM varies with traffic, active connections and routing data. Updates temporarily retain both new and previous files.
+Plan for at least 256 MB of router RAM (512 MB or more for full routing data and more concurrent clients), and 150 MB free storage (250 MB recommended for routing data and update headroom). The installed application, LuCI and bundled core use approximately 75–85 MB with native exit engines depending on architecture. The Iranian Lite routing files take about 2 MB; full files vary by provider. Runtime RAM varies with traffic, active connections and routing data. Updates temporarily retain both new and previous files.
 
 ## Install
 
@@ -37,7 +37,7 @@ apk add --allow-untrusted /tmp/*.apk
 opkg install /tmp/*.ipk
 ```
 
-Open **Services → Pol**. The service starts disabled. Dependencies are `luci-base`, `rpcd`, `ca-bundle`, `ip-full`, `nftables` and `kmod-nft-tproxy`.
+Open **Services → Pol**. The service starts disabled. Dependencies are `luci-base`, `rpcd`, `ca-bundle`, `ip-full`, `nftables`, `kmod-nft-tproxy`, `tor` and `tor-geoip`.
 
 ## Connect
 
@@ -69,7 +69,7 @@ Transparent routing captures traffic arriving from the configured LAN interface.
 
 Local SOCKS: `127.0.0.1:24800`. Local HTTP: `127.0.0.1:24801`. Internal TPROXY and DNS ports: 24810–24813. Routing table: 120. Mark bit: `0x40000000`. The program refuses to take over an occupied routing table or known competing transparent proxy tables. Disable LAN routing for proxy-only use.
 
-Serverless fragmentation does not change your public IP and cannot guarantee connectivity on every network. Tor requires a local SOCKS listener on 9050; Psiphon requires one on 10829. Install and configure those services separately.
+Serverless fragmentation does not change your public IP and cannot guarantee connectivity on every network. Managed Tor uses loopback SOCKS port 24805; managed Psiphon uses 24806. Tor bridge fetching and bootstrap progress are managed by Pol. Network reachability must still be tested.
 
 Reports come from OpenWrt's bounded logd ring with `pol-app` and `pol-core` tags. They are not persistent across reboots. Exported settings contain private connection keys.
 

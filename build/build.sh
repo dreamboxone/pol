@@ -4,7 +4,7 @@ set -eu
 ROOT=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)
 ARCH=${1:-arm_cortex-a7_neon-vfpv4}
 FORMAT=${2:-both}
-VERSION=1.5.0
+VERSION=1.8.0
 CORE_VERSION=${CORE_VERSION:-26.11.9}
 GO=${GO_BIN:-go}
 APK=${APK_BIN:-}
@@ -22,6 +22,8 @@ if [ "$FORMAT" != ipk ] && { [ -z "$APK" ] || [ ! -x "$APK" ]; }; then
 fi
 [ -x "$ROOT/prebuilt/$ARCH/xray" ] || { echo "Run build/fetch-core.py $ARCH first" >&2; exit 1; }
 mkdir -p "$ROOT/build/bin/$ARCH" "$ROOT/dist"
+(cd "$ROOT/third_party/bpb/psiphon" && GOTOOLCHAIN=go1.26.9 CGO_ENABLED=0 GOOS=linux GOARCH="$GOARCH" GOARM="$GOARM" GOMIPS=softfloat GOMIPS64=softfloat "$GO" build -trimpath -buildvcs=false -ldflags="-s -w -checklinkname=0" -o "$ROOT/build/bin/$ARCH/psiphon" .)
+(cd "$ROOT/third_party/lyrebird" && CGO_ENABLED=0 GOOS=linux GOARCH="$GOARCH" GOARM="$GOARM" GOMIPS=softfloat GOMIPS64=softfloat "$GO" build -trimpath -buildvcs=false -ldflags="-s -w -X main.lyrebirdVersion=0.10.0" -o "$ROOT/build/bin/$ARCH/lyrebird" ./cmd/lyrebird)
 (cd "$ROOT" && CGO_ENABLED=0 GOOS=linux GOARCH="$GOARCH" GOARM="$GOARM" GOMIPS=softfloat GOMIPS64=softfloat "$GO" build -trimpath -ldflags="-s -w -X main.buildPackageArch=$ARCH" -o "build/bin/$ARCH/pol" ./cmd/pol)
 
 WORK=$(mktemp -d /tmp/pol-package.XXXXXX)
@@ -36,6 +38,12 @@ sed -i "s@pol/main\"@pol/main-$view_version\"@" "$WORK/pol/usr/share/luci/menu.d
 
 mkdir -p "$WORK/pol/usr/libexec/rpcd" "$WORK/pol/usr/share/licenses/pol"
 cp "$ROOT/build/bin/$ARCH/pol" "$WORK/pol/usr/libexec/rpcd/pol"
+cp "$ROOT/build/bin/$ARCH/psiphon" "$WORK/pol/usr/lib/pol/psiphon"
+cp "$ROOT/build/bin/$ARCH/lyrebird" "$WORK/pol/usr/lib/pol/lyrebird"
+mkdir -p "$WORK/pol/usr/share/licenses/lyrebird"
+cp "$ROOT/third_party/lyrebird/LICENSE" "$ROOT/third_party/lyrebird/LICENSE-GPL3.txt" "$WORK/pol/usr/share/licenses/lyrebird/"
+mkdir -p "$WORK/pol/usr/share/licenses/bpb"
+cp "$ROOT/third_party/bpb/LICENSE" "$WORK/pol/usr/share/licenses/bpb/LICENSE"
 cp "$ROOT/LICENSE" "$ROOT/NOTICE" "$ROOT/licenses/Zirgozar-AGPL-3.0.txt" "$WORK/pol/usr/share/licenses/pol/"
 cp "$ROOT/prebuilt/$ARCH/xray" "$WORK/pol/usr/lib/pol/xray"
 ln -s xray "$WORK/pol/usr/lib/pol/pol-core"
@@ -47,9 +55,9 @@ for name in pol; do
   find "$stage" -type f -exec chmod 0644 {} +
   if [ "$name" = pol ]; then
     ver=$VERSION; license='GPL-3.0-only AND AGPL-3.0-or-later'
-    deps='luci-base rpcd ca-bundle ip-full nftables kmod-nft-tproxy'
+    deps='luci-base rpcd ca-bundle ip-full nftables kmod-nft-tproxy tor tor-geoip'
     desc='Pol VPN with LuCI and Xray for OpenWrt'
-    chmod 0755 "$stage/usr/libexec/rpcd/pol" "$stage/etc/init.d/pol" "$stage/usr/lib/pol/xray"
+    chmod 0755 "$stage/usr/libexec/rpcd/pol" "$stage/etc/init.d/pol" "$stage/usr/lib/pol/xray" "$stage/usr/lib/pol/psiphon" "$stage/usr/lib/pol/lyrebird"
     chmod 0600 "$stage/etc/pol/settings.json"
   fi
   admin="$WORK/admin-$name"; mkdir -p "$admin"

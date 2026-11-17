@@ -177,7 +177,7 @@ func download(asset Asset, path string, max int64) error {
 	if !strings.HasPrefix(asset.URL, "https://github.com/") {
 		return errors.New("release asset must be hosted on GitHub")
 	}
-	client := &http.Client{Timeout: 3 * time.Minute}
+	client := &http.Client{Timeout: 8 * time.Minute}
 	resp, err := client.Get(asset.URL)
 	if err != nil {
 		return err

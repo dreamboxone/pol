@@ -23,7 +23,10 @@
           "deploy",
           "scan",
           "geoUpdate",
-          "check"
+          "check",
+          "scanControl",
+          "torBridges",
+          "cfDelete"
         ]
       }
     }

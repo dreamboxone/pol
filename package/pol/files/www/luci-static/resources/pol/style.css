@@ -135,3 +135,11 @@
 .pol[dir=rtl] .pol-logs{direction:rtl;text-align:right;unicode-bidi:plaintext}.pol[dir=ltr] .pol-logs{direction:ltr;text-align:left}
 @media(max-width:800px){.pol .pol-version-row{grid-template-columns:minmax(0,1fr) max-content;gap:12px}.pol .pol-version-actions{grid-column:1 / -1}.pol .pol-version-note{grid-column:1 / -1}}
 .pol .pol-geo-progress:empty{display:none}.pol .pol-geo-progress{display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin-top:16px;padding:14px 16px;border:1px solid #10b98155;border-radius:12px;background:#10b98110;color:var(--text);font-size:13px}.pol .pol-geo-progress progress{width:100%;height:12px;direction:ltr;accent-color:#5475ff}.pol .pol-geo-progress.is-error{border-color:#ef444466;background:#ef444410}
+
+.pol .pol-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+.pol .pol-grid>.pol-field{grid-column:auto;grid-template-columns:minmax(0,40%) minmax(0,1fr)}
+.pol .pol-grid>.pol-inline-control,.pol .pol-grid>.pol-switch{grid-column:auto;min-width:0;justify-content:space-between}
+.pol .pol-grid>.pol-settings-row{grid-column:1/-1;min-width:0}
+.pol .pol-grid>.pol-json-field{grid-column:1/-1;display:flex;flex-direction:column;align-items:stretch}
+.pol .pol-json-field>.pol-input{width:100%!important;min-width:0;max-width:100%}
+@media(max-width:900px){.pol .pol-grid{grid-template-columns:minmax(0,1fr)}.pol .pol-grid>.pol-field{grid-template-columns:minmax(0,42%) minmax(0,1fr)}}

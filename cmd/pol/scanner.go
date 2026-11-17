@@ -1,6 +1,7 @@
 package main
 
 import (
+	bpbscanner "bpb/scanner"
 	"context"
 	"encoding/json"
 	"errors"
@@ -142,7 +143,13 @@ func probeCandidate(s Settings, address string) (int64, error) {
 }
 
 func scan(s Settings, text string) (any, error) {
-	candidates, err := scanCandidates(s, text)
+	var candidates []string
+	var err error
+	if strings.TrimSpace(text) == "auto" {
+		candidates, err = automaticCandidates(s)
+	} else {
+		candidates, err = scanCandidates(s, text)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -150,14 +157,35 @@ func scan(s Settings, text string) (any, error) {
 		return nil, err
 	}
 	results := make([]ScanResult, 0, len(candidates))
+	scanID := readJob().ID
+	started := time.Now()
+	reportUpdateProgress("scanning", 0, int64(len(candidates)))
 	// Sequential probes bound memory use on small routers.
-	for _, candidate := range candidates {
+	for i, candidate := range candidates {
+		stopped := false
+		for {
+			control := readScanControl(scanID)
+			if control == "stop" || time.Since(started) > 8*time.Minute {
+				stopped = true
+				break
+			}
+			if control != "pause" {
+				break
+			}
+			reportUpdateProgress("paused", int64(i), int64(len(candidates)))
+			time.Sleep(250 * time.Millisecond)
+		}
+		if stopped {
+			break
+		}
+		reportUpdateProgress("scanning", int64(i), int64(len(candidates)))
 		latency, e := probeCandidate(s, candidate)
 		r := ScanResult{Address: candidate, Latency: latency}
 		if e != nil {
 			r.Error = e.Error()
 		}
 		results = append(results, r)
+		reportUpdateProgress("scanning", int64(i+1), int64(len(candidates)))
 	}
 	sort.SliceStable(results, func(i, j int) bool {
 		if (results[i].Error == "") != (results[j].Error == "") {
@@ -167,4 +195,64 @@ func scan(s Settings, text string) (any, error) {
 	})
 	event("Endpoint scan completed")
 	return object{"results": results, "mode": s.Mode, "variant": s.Variant, "transport": s.Transport}, nil
+}
+
+func automaticCandidates(s Settings) ([]string, error) {
+	name := "vless-cidrs.txt"
+	if s.Mode == "warp" || s.Mode == "masque" {
+		name = "warp-cidrs.txt"
+	} else if s.Mode != "worker" {
+		return nil, errors.New("scanner supports Worker, WARP and MASQUE")
+	}
+	data, err := os.ReadFile("/usr/share/pol/scanner/" + name)
+	if err != nil {
+		return nil, fmt.Errorf("read scanner CIDRs: %w", err)
+	}
+	var cidrs []string
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimSpace(line)
+		if line != "" && !strings.HasPrefix(line, "#") {
+			cidrs = append(cidrs, line)
+		}
+	}
+	ips, err := bpbscanner.SelectScanIPs(context.Background(), cidrs, 24, s.DNSStrategy != "UseIPv4")
+	if err != nil {
+		return nil, err
+	}
+	if s.Mode != "worker" {
+		_, port, err := net.SplitHostPort(s.Endpoint)
+		if err != nil {
+			return nil, err
+		}
+		for i, ip := range ips {
+			ips[i] = net.JoinHostPort(ip, port)
+		}
+	}
+	return ips, nil
+}
+
+func readScanControl(id string) string {
+	var control struct {
+		ID     string `json:"id"`
+		Action string `json:"action"`
+	}
+	b, _ := os.ReadFile(runtimeDir + "/scan-control.json")
+	if json.Unmarshal(b, &control) != nil || control.ID != id {
+		return ""
+	}
+	return control.Action
+}
+func controlScan(action string) (any, error) {
+	if action != "pause" && action != "resume" && action != "stop" {
+		return nil, errors.New("invalid scan control")
+	}
+	job := readJob()
+	if job.Method != "scan" || (job.State != "running" && job.State != "pending") {
+		return nil, errors.New("scanner is not running")
+	}
+	b, _ := json.Marshal(object{"id": job.ID, "action": action})
+	if err := atomicWrite(runtimeDir+"/scan-control.json", b, 0600); err != nil {
+		return nil, err
+	}
+	return object{"ok": true}, nil
 }
