@@ -35,3 +35,30 @@ func TestDNSModesWithCore(t *testing.T) {
 		})
 	}
 }
+
+func TestBPBFeaturesWithCore(t *testing.T) {
+	core := os.Getenv("POL_TEST_XRAY")
+	if core == "" {
+		t.Skip("requires router core")
+	}
+	s := defaults()
+	s.Mode = "worker"
+	s.Host = "test.workers.dev"
+	s.UUID = "12345678-1234-1234-1234-123456789abc"
+	s.Address = "104.16.1.1"
+	s.CustomCDN = object{"enabled": true, "addresses": []any{s.Address}, "host": "cdn.example", "sni": "tls.example"}
+	s.UpstreamRelay = "relay.example:8443"
+	s.BPBRouting = object{"bypass": object{"domains": []any{"example.ir"}}, "sanctionBypass": object{"domains": []any{"example.net"}}, "block": object{"domains": []any{"blocked.example"}, "presets": object{"quic": true}}}
+	cfg, e := buildConfig(s)
+	if e != nil {
+		t.Fatal(e)
+	}
+	b, _ := json.Marshal(cfg)
+	path := filepath.Join(t.TempDir(), "bpb.json")
+	if e = os.WriteFile(path, b, 0600); e != nil {
+		t.Fatal(e)
+	}
+	if out, e := exec.Command(core, "run", "-test", "-config", path).CombinedOutput(); e != nil {
+		t.Fatalf("BPB features rejected: %s", out)
+	}
+}

@@ -71,7 +71,9 @@ jobs:
         run: sudo --preserve-env=PATH,APK_BIN sh build/build.sh '${{ matrix.arch }}' both
       - name: Build router test executable
         if: github.ref_name == 'codex/bpb-router-test'
-        run: CGO_ENABLED=0 GOOS=linux GOARCH=arm GOARM=7 go test -c -o dist/pol-router-tests ./cmd/pol
+        run: |
+          CGO_ENABLED=0 GOOS=linux GOARCH=arm GOARM=7 go test -c -o /tmp/pol-router-tests ./cmd/pol
+          sudo mv /tmp/pol-router-tests dist/pol-router-tests
       - uses: actions/upload-artifact@v4
         with:
           name: pol-${{ matrix.arch }}
