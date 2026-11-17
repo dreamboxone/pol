@@ -166,11 +166,5 @@
     "goarm": "-",
     "asset": "Xray-linux-riscv64.zip",
     "binary": "xray"
-  },
-  "loongarch64_generic": {
-    "goarch": "loong64",
-    "goarm": "-",
-    "asset": "Xray-linux-loong64.zip",
-    "binary": "xray"
   }
 }

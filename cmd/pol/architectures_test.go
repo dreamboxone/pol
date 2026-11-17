@@ -13,7 +13,6 @@ func TestCoreUpdateUsesExactPackageArchitecture(t *testing.T) {
 		{"mipsel_74kc", "Xray-linux-mips32le.zip", "xray_softfloat"},
 		{"mips_4kec", "Xray-linux-mips32.zip", "xray_softfloat"},
 		{"mips64el_mips64r2", "Xray-linux-mips64le.zip", "xray"},
-		{"loongarch64_generic", "Xray-linux-loong64.zip", "xray"},
 	} {
 		buildPackageArch = tc.arch
 		asset, err := coreAsset()
