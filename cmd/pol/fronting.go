@@ -79,8 +79,12 @@ func buildDomainFronting(s Settings) (object, error) {
 	withExit := (s.ExitMode == "tor" || s.ExitMode == "psiphon" || s.Chain != "")
 	for _, raw := range asArray(routing["rules"]) {
 		r := raw.(map[string]any)
-		if tag, _ := r["ruleTag"].(string); tag == "block-domain" || tag == "bypass-domain" || tag == "block-ip" || tag == "bypass-ip" {
+		tag, _ := r["ruleTag"].(string)
+		if tag == "block-domain" || tag == "bypass-domain" || tag == "bypass-ip" {
 			continue
+		}
+		if tag == "block-ip" {
+			r["ip"] = []string{"10.10.34.0/24", "2001:4188:2:600:10:10:34:0/112"}
 		}
 		if tags, ok := r["inboundTag"].([]any); ok && len(tags) == 0 {
 			if withExit {
@@ -113,7 +117,7 @@ func buildDomainFronting(s Settings) (object, error) {
 			}
 			cfg["outbounds"] = append(asArray(cfg["outbounds"]), object{"tag": "fronting-exit", "protocol": "socks", "settings": object{"servers": []any{object{"address": "127.0.0.1", "port": port}}}})
 		}
-		rules = append([]any{object{"type": "field", "inboundTag": []string{"lan-in", "lan6-in", "socks-in", "http-in"}, "outboundTag": "fronting-exit"}}, rules...)
+		rules = append([]any{object{"type": "field", "inboundTag": []string{"lan-in", "lan6-in", "socks-in", "http-in", "lan-socks-in", "lan-http-in"}, "outboundTag": "fronting-exit"}}, rules...)
 	}
 	for _, r := range rules {
 		r.(map[string]any)["type"] = "field"

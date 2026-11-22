@@ -101,4 +101,4 @@ jobs:
         shell: bash
         run: |
           gh release create "$TAG" packages/*.ipk packages/*.apk packages/SHA256SUMS \
-            --verify-tag --title "پل ${TAG#v}" --notes-file .github/release-notes.md --latest
+            --verify-tag --title "${TAG#v}" --notes-file .github/release-notes.md --latest

@@ -251,6 +251,10 @@ func runExit(s Settings) error {
 }
 
 func fetchTorBridges(ctx context.Context, transport string) (object, error) {
+	amp := transport == "snowflake-amp"
+	if amp {
+		transport = "snowflake"
+	}
 	if !contains([]string{"auto", "obfs4", "snowflake", "webtunnel", "meek_lite"}, transport) {
 		return nil, fmt.Errorf("unsupported Tor bridge transport")
 	}
@@ -276,6 +280,9 @@ func fetchTorBridges(ctx context.Context, transport string) (object, error) {
 			line = strings.TrimSpace(strings.TrimPrefix(line, "Bridge "))
 			fields := strings.Fields(line)
 			if len(fields) > 1 && contains(transports, fields[0]) && !strings.ContainsAny(line, "\r\n\x00") && len(line) <= 2048 {
+				if amp {
+					line = snowflakeAMPBridge(fields)
+				}
 				bridges = append(bridges, line)
 			}
 		}
@@ -284,6 +291,17 @@ func fetchTorBridges(ctx context.Context, transport string) (object, error) {
 		return nil, fmt.Errorf("Tor Project sent no bridges of this type")
 	}
 	return object{"bridges": bridges}, nil
+}
+
+func snowflakeAMPBridge(fields []string) string {
+	var args []string
+	for _, item := range fields {
+		key, _, _ := strings.Cut(item, "=")
+		if !contains([]string{"url", "front", "fronts", "ampcache"}, key) {
+			args = append(args, item)
+		}
+	}
+	return strings.Join(args, " ") + " url=https://snowflake-broker.torproject.net/ ampcache=https://cdn.ampproject.org/ front=www.google.com"
 }
 
 func monitorTorControl(ctx context.Context) {

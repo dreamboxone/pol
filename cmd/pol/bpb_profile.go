@@ -37,6 +37,9 @@ func importBPBProfile(s Settings, data object) (Settings, error) {
 		return json.Unmarshal(b, &n)
 	}
 	general := mapAt(p, "general")
+	if e := apply(general, map[string]string{"localDns": "localDns"}); e != nil {
+		return s, e
+	}
 	if v, ok := general["enableFakeDns"].(bool); ok {
 		n.FakeDNS = v
 	}
@@ -124,6 +127,21 @@ func importBPBProfile(s Settings, data object) (Settings, error) {
 	if e := apply(mapAt(p, "serverless"), map[string]string{"fragments": "serverlessFragments", "udpNoises": "serverlessNoises"}); e != nil {
 		return s, e
 	}
+	dnsSettings := mapAt(mapAt(p, "serverless"), "dnsSettings")
+	if e := apply(dnsSettings, map[string]string{"dnsType": "serverlessDnsType", "fakeSniServers": "fakeSniDns"}); e != nil {
+		return s, e
+	}
+	if servers, exists := dnsSettings["servers"]; exists {
+		n.ServerlessDNSServers = nil
+		for _, raw := range asArray(servers) {
+			server, _ := raw.(object)
+			for _, address := range asArray(server["addresses"]) {
+				if value, ok := address.(string); ok {
+					n.ServerlessDNSServers = append(n.ServerlessDNSServers, value)
+				}
+			}
+		}
+	}
 	if reset, ok := p["udpNoiseReset"]; ok {
 		b, _ := json.Marshal(reset)
 		var r MaskRange
@@ -136,11 +154,15 @@ func importBPBProfile(s Settings, data object) (Settings, error) {
 	if value, ok := general["antiSanctionDns"].(string); ok {
 		n.AntiSanctionDNS = value
 	}
-	if len(asArray(p["chains"])) > 0 {
-		return s, fmt.Errorf("select a BPB chain URI separately before importing this profile")
+	if e := apply(p, map[string]string{"chains": "chains"}); e != nil {
+		return s, e
 	}
 	n.UpstreamRelay, _ = vless["upstreamProxy"].(string)
 	n.CustomCDN = mapAt(vless, "customCdn")
+	if remote, ok := general["remoteDns"].(string); ok {
+		n.DNS = remote
+	}
+	migrateRemoteDNS(&n)
 	if e := validate(n, false); e != nil {
 		return s, e
 	}

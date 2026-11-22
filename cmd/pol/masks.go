@@ -75,7 +75,14 @@ func fragmentRules(s Settings) []any {
 }
 func noiseRules(s Settings) []any {
 	var rules []any
-	for _, n := range selectedNoises(s) {
+	noises := selectedNoises(s)
+	if len(noises) == 0 && s.NoiseSize == "40-70" && s.NoiseDelay == "0" {
+		noises = []NoiseRule{
+			{Type: "exp", Packet: "<b 0x123401000001000000000000076578616d706c6503636f6d0000010001>", Count: 1},
+			{Type: "rand", Size: MaskRange{Min: 40, Max: 70}, Count: 4},
+		}
+	}
+	for _, n := range noises {
 		count := n.Count
 		if count == 0 {
 			count = 1

@@ -13,7 +13,7 @@ import (
 	"time"
 )
 
-var asyncMethods = []string{"deploy", "register", "update", "scan", "geoUpdate", "check", "torBridges", "cfDelete", "dnsProbe"}
+var asyncMethods = []string{"deploy", "register", "update", "scan", "geoUpdate", "check", "torBridges", "cfDelete", "cfUpdate", "cfDomain", "dnsProbe"}
 
 type Job struct {
 	Target   string          `json:"target,omitempty"`

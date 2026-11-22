@@ -4,7 +4,9 @@ This project adapts the configuration and Worker protocol of BPB-VPN:
 https://github.com/bia-pain-bache/BPB-VPN
 Source revision: 2b5dd87d7a000c2ef13307ee315fae14441b4f3a
 BPB-VPN is distributed under the GNU General Public License, version 3.
-The bundled worker.js is from that project. The Go configuration builder
+The bundled Worker, SSH proxy, scanner pause fix and domain-fronting template
+include changes from BPB-VPN v1.3.0 (4ae76d3f9479541675a7ad5276208186599f2209).
+The Go configuration builder
 is an OpenWrt adaptation of its lib/services/xray_config.dart.
 
 Xray-core is independently distributed under the Mozilla Public License 2.0:

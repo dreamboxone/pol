@@ -30,15 +30,18 @@ func noise(s Settings) object {
 func proxyOutbound(s Settings) (object, error) {
 	switch s.Mode {
 	case "worker":
+		host := s.Host
+		if s.WorkerDomain != "" {
+			host = s.WorkerDomain
+		}
 		address := s.Address
 		if address == "" {
-			address = s.Host
+			address = host
 		}
 		sni := s.WorkerSNI
 		if sni == "" {
-			sni = s.Host
+			sni = host
 		}
-		host := s.Host
 		if s.Variant != "fragment" {
 			if active, _ := s.CustomCDN["enabled"].(bool); active {
 				for _, raw := range asArray(s.CustomCDN["addresses"]) {
@@ -134,6 +137,8 @@ func proxyOutbound(s Settings) (object, error) {
 		mask := fragment(s)
 		mask["udp"] = noise(s)["udp"]
 		return object{"tag": "proxy", "protocol": "freedom", "settings": object{}, "streamSettings": object{"sockopt": object{"domainStrategy": s.DNSStrategy}, "finalmask": mask}}, nil
+	case "ssh":
+		return object{"tag": "proxy", "protocol": "socks", "settings": object{"servers": []any{object{"address": "127.0.0.1", "port": 24807}}}}, nil
 	case "tor":
 		return object{"tag": "proxy", "protocol": "socks", "settings": object{"servers": []any{object{"address": "127.0.0.1", "port": 24805}}}}, nil
 	case "psiphon":
@@ -169,6 +174,7 @@ func domainRule(domains []string, tag string) object {
 }
 
 func buildConfig(s Settings) (object, error) {
+	s.Chain = effectiveChain(s)
 	if s.Mode == "serverless" && s.ServerlessMode == "domain-fronting" {
 		return buildDomainFronting(s)
 	}
@@ -234,7 +240,7 @@ func buildConfig(s Settings) (object, error) {
 		rules = append(rules, domainRule(s.BlockDomains, "block"))
 	}
 	rules = append(rules, object{"type": "field", "ip": []string{"10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "127.0.0.0/8", "169.254.0.0/16", "::1/128", "fc00::/7", "fe80::/10"}, "outboundTag": "direct"})
-	if s.Mode == "tor" || s.ExitMode == "tor" || (s.Mode == "worker" && (s.ExitMode == "" || s.ExitMode == "none")) {
+	if s.Mode == "ssh" || s.Mode == "tor" || s.ExitMode == "tor" || (s.Mode == "worker" && (s.ExitMode == "" || s.ExitMode == "none")) {
 		rules = append(rules, object{"type": "field", "network": "udp", "outboundTag": "block"})
 	}
 	final := "proxy"
@@ -253,6 +259,11 @@ func buildConfig(s Settings) (object, error) {
 		rules = append(rules, object{"type": "field", "network": "tcp,udp", "outboundTag": final})
 	}
 	ins := inbound()
+	shared, err := sharedProxyInbounds(s)
+	if err != nil {
+		return nil, err
+	}
+	ins = append(ins, shared...)
 	if !s.Transparent {
 		ins = ins[4:]
 	}
@@ -405,6 +416,7 @@ func importConfig(s Settings, text string) (Settings, error) {
 		if q.Get("type") == "ws" && q.Get("security") == "tls" && (strings.HasSuffix(q.Get("host"), ".workers.dev") || strings.HasSuffix(q.Get("host"), ".pages.dev")) {
 			s.Mode = "worker"
 			s.Host = q.Get("host")
+			s.WorkerDomain = ""
 			if s.Host == "" {
 				s.Host = q.Get("sni")
 			}
@@ -460,6 +472,7 @@ func importConfig(s Settings, text string) (Settings, error) {
 		return s, err
 	}
 	s.Enabled = on
+	migrateRemoteDNS(&s)
 	return s, nil
 }
 

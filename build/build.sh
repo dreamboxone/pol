@@ -4,7 +4,7 @@ set -eu
 ROOT=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)
 ARCH=${1:-arm_cortex-a7_neon-vfpv4}
 FORMAT=${2:-both}
-VERSION=1.8.27
+VERSION=5.9.1
 CORE_VERSION=${CORE_VERSION:-26.11.9}
 GO=${GO_BIN:-go}
 APK=${APK_BIN:-}
@@ -69,6 +69,7 @@ if [ -x /usr/libexec/rpcd/pol ]; then
   rm -f /tmp/luci-indexcache /tmp/luci-indexcache.*.json
   /etc/init.d/rpcd restart
   if /usr/libexec/rpcd/pol is-enabled; then /etc/init.d/pol start; fi
+  /usr/libexec/rpcd/pol worker-auto-update </dev/null >/dev/null 2>&1 &
 fi
 exit 0
 EOF

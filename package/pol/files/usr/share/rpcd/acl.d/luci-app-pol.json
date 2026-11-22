@@ -27,6 +27,12 @@
           "scanControl",
           "torBridges",
           "cfDelete",
+          "cfSignIn",
+          "cfUsage",
+          "cfDomain",
+          "cfAutoUpdate",
+          "cfUpdate",
+          "config",
           "dnsProbe"
         ]
       }

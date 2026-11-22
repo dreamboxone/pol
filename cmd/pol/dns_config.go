@@ -22,6 +22,66 @@ func dnsAddress(raw string, local bool) string {
 	}
 	return raw
 }
+
+func migrateRemoteDNS(s *Settings) {
+	s.DNSByMode = nil
+	if net.ParseIP(s.DNS) != nil {
+		return
+	}
+	switch s.DNS {
+	case "", "https://8.8.8.8/dns-query", "udp://127.0.0.1:24818", "udp://127.0.0.1:24819":
+	default:
+		if len(s.DNSServers) == 0 {
+			s.DNSServers = []string{s.DNS}
+		}
+	}
+	s.DNS = "1.1.1.1"
+}
+
+func validateServerlessResolvers(s Settings) error {
+	for _, value := range s.ServerlessDNSServers {
+		if _, err := serverlessResolver(s.ServerlessDNSType, value); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func serverlessResolver(kind, value string) (string, error) {
+	if kind == "" {
+		kind = "doh"
+	}
+	raw := strings.TrimSpace(value)
+	if raw == "" || len(raw) > 2048 || strings.ContainsAny(raw, " \r\n\x00") {
+		return "", fmt.Errorf("invalid serverless DNS address")
+	}
+	if !strings.Contains(raw, "://") {
+		if kind == "udp" {
+			if net.ParseIP(raw) != nil {
+				return raw, nil
+			}
+			return "udp://" + raw, nil
+		}
+		if net.ParseIP(raw) != nil && strings.Contains(raw, ":") {
+			raw = "[" + raw + "]"
+		}
+		switch kind {
+		case "tcp":
+			raw = "tcp://" + raw
+		case "doq":
+			raw = "quic://" + raw
+		default:
+			raw = "https://" + raw + "/dns-query"
+		}
+	}
+	parsed, err := url.Parse(raw)
+	schemes := map[string]string{"udp": "udp", "tcp": "tcp", "doh": "https", "doq": "quic"}
+	if err != nil || parsed.Hostname() == "" || parsed.User != nil || parsed.Scheme != schemes[kind] {
+		return "", fmt.Errorf("serverless DNS address does not match selected protocol")
+	}
+	return raw, nil
+}
+
 func applyDNSConfiguration(cfg object, s Settings) error {
 	if len(s.DNSServers) > 64 || len(s.DNSHosts) > 128 {
 		return fmt.Errorf("too many DNS servers or bootstrap hosts")
@@ -71,15 +131,29 @@ func applyDNSConfiguration(cfg object, s Settings) error {
 	if len(addresses) == 0 {
 		switch {
 		case dnsMode:
-			if !s.FakeSNIDNS {
+			for _, value := range s.ServerlessDNSServers {
+				resolver, err := serverlessResolver(s.ServerlessDNSType, value)
+				if err != nil {
+					return err
+				}
+				addresses = append(addresses, resolver)
+			}
+			if len(addresses) == 0 && !s.FakeSNIDNS && (s.ServerlessDNSType == "" || s.ServerlessDNSType == "doh") {
 				for _, p := range s.WorkerProfiles {
 					if p.Host != "" && p.UUID != "" {
 						addresses = append(addresses, "https://"+p.Host+"/"+p.UUID)
 					}
 				}
 				if len(addresses) == 0 {
-					addresses = []string{s.DNS}
+					addresses = []string{"https://dns.google/dns-query", "https://cloudflare-dns.com/dns-query"}
 				}
+			}
+			if len(addresses) == 0 && !s.FakeSNIDNS {
+				resolver, err := serverlessResolver(s.ServerlessDNSType, s.LocalDNS)
+				if err != nil {
+					return err
+				}
+				addresses = []string{resolver}
 			}
 		case packet:
 			addresses = []string{"https://dns.google/dns-query", "https://cloudflare-dns.com/dns-query"}
@@ -103,7 +177,7 @@ func applyDNSConfiguration(cfg object, s Settings) error {
 		if len(raw) > 2048 || strings.ContainsAny(raw, "\r\n\x00") || raw == "" {
 			return fmt.Errorf("invalid DNS server")
 		}
-		if ip := net.ParseIP(raw); ip != nil && (s.Mode == "worker" || s.Mode == "tor") {
+		if ip := net.ParseIP(raw); ip != nil && s.Mode != "warp" && s.Mode != "masque" && !dnsMode {
 			raw = "tcp://" + net.JoinHostPort(raw, "53")
 		}
 		tag := "remote-dns"
@@ -115,6 +189,17 @@ func applyDNSConfiguration(cfg object, s Settings) error {
 	}
 	routing := cfg["routing"].(map[string]any)
 	var extraRules []any
+	if len(s.BypassDomains) > 0 {
+		domains := domainRule(s.BypassDomains, "direct")["domain"]
+		servers = append([]any{object{"address": s.LocalDNS, "domains": domains, "skipFallback": true, "tag": "pol-local-dns"}}, servers...)
+	}
+	if mode := exitMode(s); !packet && !dnsMode && (mode == "tor" || mode == "psiphon") {
+		port := 24818
+		if mode == "psiphon" {
+			port = 24819
+		}
+		servers = append(servers, object{"address": "127.0.0.1", "port": port, "tag": "pol-local-dns"})
+	}
 	if dnsMode && s.FakeSNIDNS {
 		for _, server := range []struct {
 			name, address, sni string

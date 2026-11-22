@@ -8,6 +8,33 @@ import (
 	"testing"
 )
 
+func TestSSHConfigWithNativeDNSFallback(t *testing.T) {
+	s := defaults()
+	s.Mode, s.ExitMode, s.DNS = "ssh", "tor", "2606:4700:4700::1111"
+	cfg, err := buildConfig(s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	servers := cfg["dns"].(object)["servers"].([]any)
+	if servers[0].(object)["address"] != "tcp://[2606:4700:4700::1111]:53" ||
+		servers[1].(object)["port"] != 24818 {
+		t.Fatalf("unexpected SSH DNS servers: %v", servers)
+	}
+	if core := os.Getenv("POL_TEST_XRAY"); core != "" {
+		data, err := json.Marshal(cfg)
+		if err != nil {
+			t.Fatal(err)
+		}
+		path := filepath.Join(t.TempDir(), "ssh.json")
+		if err = os.WriteFile(path, data, 0600); err != nil {
+			t.Fatal(err)
+		}
+		if out, err := exec.Command(core, "run", "-test", "-config", path).CombinedOutput(); err != nil {
+			t.Fatalf("SSH config rejected: %s", out)
+		}
+	}
+}
+
 func TestDNSModesWithCore(t *testing.T) {
 	for _, tc := range []struct {
 		name, mode string

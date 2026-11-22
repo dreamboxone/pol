@@ -7,6 +7,13 @@ import (
 	"strings"
 )
 
+func defaultProbeInterval(mode string) int {
+	if mode == "worker" {
+		return 60
+	}
+	return 30
+}
+
 func validateSelection(s Settings) error {
 	if len(s.CleanIPs) > 24 || len(s.Endpoints) > 24 || len(s.WorkerPorts) > 12 {
 		return fmt.Errorf("too many connection candidates")
@@ -58,6 +65,9 @@ func applyEndpointPool(cfg object, s Settings) (object, error) {
 		for _, address := range addresses {
 			if address == "" {
 				address = s.Host
+				if s.WorkerDomain != "" {
+					address = s.WorkerDomain
+				}
 			}
 			for _, port := range ports {
 				key := net.JoinHostPort(address, strconv.Itoa(port))
@@ -86,6 +96,9 @@ func applyEndpointPool(cfg object, s Settings) (object, error) {
 	if len(candidates) > 24 {
 		return nil, fmt.Errorf("best-ping pool is limited to 24 endpoints")
 	}
+	if len(candidates) < 2 {
+		return cfg, nil
+	}
 	outs := cfg["outbounds"].([]any)
 	for i, raw := range outs {
 		if raw.(map[string]any)["tag"] == "proxy" {
@@ -107,7 +120,7 @@ func applyEndpointPool(cfg object, s Settings) (object, error) {
 	routing["balancers"] = []any{object{"tag": "best-ping", "selector": []string{"pol-pool-"}, "strategy": object{"type": "leastPing"}, "fallbackTag": "pol-pool-0"}}
 	interval := s.ProbeInterval
 	if interval == 0 {
-		interval = 30
+		interval = defaultProbeInterval(s.Mode)
 	}
 	cfg["burstObservatory"] = object{"subjectSelector": []string{"pol-pool-"}, "pingConfig": object{"destination": "https://www.gstatic.com/generate_204", "connectivity": "http://cp.cloudflare.com/generate_204", "interval": fmt.Sprint(interval) + "s", "sampling": 3, "timeout": "5s"}}
 	return cfg, nil

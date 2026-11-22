@@ -39,6 +39,7 @@ func buildImportedConfig(s Settings) (object, error) {
 	base.ExitMode = "none"
 	base.BestPing = false
 	base.Chain = ""
+	base.ExitChains = nil
 	managed, err := buildConfig(base)
 	if err != nil {
 		return nil, err
@@ -63,7 +64,7 @@ func buildImportedConfig(s Settings) (object, error) {
 		if strings.Contains(strings.ToLower(tag), "dns") {
 			inboundMap[tag] = []string{"dns-in", "dns6-in"}
 		} else {
-			inboundMap[tag] = []string{"lan-in", "lan6-in", "socks-in", "http-in"}
+			inboundMap[tag] = []string{"lan-in", "lan6-in", "socks-in", "http-in", "lan-socks-in", "lan-http-in"}
 		}
 	}
 	oldAPI := ""

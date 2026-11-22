@@ -17,9 +17,11 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	sshproxy "pol-openwrt/third_party/bpb/ssh"
 )
 
-const version = "1.8.27"
+const version = "5.9.1"
 const settingsPath = "/etc/pol/settings.json"
 const corePath = "/usr/lib/pol/xray"
 
@@ -28,31 +30,47 @@ var runtimeDir = "/var/run/pol"
 type object = map[string]any
 
 type WorkerProfile struct {
-	Name      string `json:"name"`
-	Kind      string `json:"kind"`
-	AccountID string `json:"accountId,omitempty"`
-	Project   string `json:"project,omitempty"`
-	Host      string `json:"host"`
-	UUID      string `json:"uuid"`
-	Address   string `json:"address"`
-	Port      int    `json:"port"`
-	Path      string `json:"path"`
-	WorkerSNI string `json:"workerSni"`
+	Name         string `json:"name"`
+	Kind         string `json:"kind"`
+	AccountID    string `json:"accountId,omitempty"`
+	Project      string `json:"project,omitempty"`
+	Host         string `json:"host"`
+	UUID         string `json:"uuid"`
+	Address      string `json:"address"`
+	Port         int    `json:"port"`
+	Path         string `json:"path"`
+	WorkerSNI    string `json:"workerSni"`
+	CustomDomain string `json:"customDomain,omitempty"`
+}
+
+type SavedChain struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+	Link string `json:"link"`
 }
 
 type Settings struct {
-	CustomCDN       object              `json:"customCdn,omitempty"`
-	UpstreamRelay   string              `json:"upstreamRelay,omitempty"`
-	BPBRouting      object              `json:"bpbRouting,omitempty"`
-	AntiSanctionDNS string              `json:"antiSanctionDns,omitempty"`
-	DNSServers      []string            `json:"dnsServers"`
-	DNSHosts        map[string][]string `json:"dnsHosts"`
-	FakeSNIDNS      bool                `json:"fakeSniDns"`
-	FakeDNS         bool                `json:"fakeDns"`
+	WorkerDomain         string              `json:"workerDomain"`
+	LANSharing           bool                `json:"lanSharing"`
+	LANUsername          string              `json:"lanUsername"`
+	LANPassword          string              `json:"lanPassword"`
+	ServerlessDNSType    string              `json:"serverlessDnsType"`
+	ServerlessDNSServers []string            `json:"serverlessDnsServers"`
+	Chains               []SavedChain        `json:"chains"`
+	ExitChains           map[string]string   `json:"exitChains"`
+	SSH                  sshproxy.Config     `json:"ssh"`
+	CustomCDN            object              `json:"customCdn,omitempty"`
+	UpstreamRelay        string              `json:"upstreamRelay,omitempty"`
+	BPBRouting           object              `json:"bpbRouting,omitempty"`
+	AntiSanctionDNS      string              `json:"antiSanctionDns,omitempty"`
+	DNSServers           []string            `json:"dnsServers"`
+	DNSHosts             map[string][]string `json:"dnsHosts"`
+	FakeSNIDNS           bool                `json:"fakeSniDns"`
+	FakeDNS              bool                `json:"fakeDns"`
 
 	ServerlessMode string            `json:"serverlessMode"`
 	TorBridgeMode  string            `json:"torBridgeMode"`
-	DNSByMode      map[string]string `json:"dnsByMode"`
+	DNSByMode      map[string]string `json:"dnsByMode,omitempty"`
 	EndpointByMode map[string]string `json:"endpointByMode"`
 	BestPing       bool              `json:"bestPing"`
 	CleanIPs       []string          `json:"cleanIps"`
@@ -93,6 +111,7 @@ type Settings struct {
 	Port              int             `json:"port"`
 	Path              string          `json:"path"`
 	DNS               string          `json:"dns"`
+	LocalDNS          string          `json:"localDns"`
 	LAN               string          `json:"lan"`
 	Transparent       bool            `json:"transparent"`
 	FragmentLength    string          `json:"fragmentLength"`
@@ -136,7 +155,7 @@ type MasqueAccount struct {
 }
 
 func defaults() Settings {
-	return Settings{ProbeInterval: 30, TorBridgeMode: "auto", DirectIPs: []string{}, RebindDomains: []string{"banksepah.ir", "cbi.ir", "ebanksepah.ir", "esata.ir", "gov.ir", "medu.ir", "qmb.ir", "tamin.ir", "meedc.net", "ntp.faraborddi.com", "qmehr724.com"}, GeoDirectory: "/etc/pol/geo", GeoAuto: "disabled", GeoIPUpdate: true, GeoSiteUpdate: true, IranDNS: "178.22.122.100", GeoIPURL: geoBase + "geoip.dat", GeoSiteURL: geoBase + "geosite.dat", Mode: "worker", Variant: "normal", Port: 443, Path: "/?ed=2560", DNS: "https://8.8.8.8/dns-query", LAN: "br-lan", Transparent: true, FragmentLength: "100-200", FragmentDelay: "1-1", TLSFingerprint: "chrome", DNSStrategy: "UseIPv4", NoiseSize: "10-30", NoiseDelay: "1-3", NoiseReset: "5-10", WarpMTU: 1280, WarpKeepAlive: 30, WarpReserved: true, Endpoint: "162.159.192.1:2408", Transport: "h2", SNI: "speed.cloudflare.com", LogLevel: "warning", ReleaseRepository: "dreamboxone/pol", BypassDomains: []string{}, BlockDomains: []string{}}
+	return Settings{SSH: sshproxy.Config{Port: 22, KeepAliveInterval: 15, TCPKeepAliveInterval: 15}, ProbeInterval: 60, ServerlessMode: "dns", ServerlessDNSType: "doh", TorBridgeMode: "snowflake-amp", BestPing: true, CleanIPs: []string{"104.17.148.22", "104.17.147.22"}, DirectIPs: []string{}, RebindDomains: []string{"banksepah.ir", "cbi.ir", "ebanksepah.ir", "esata.ir", "gov.ir", "medu.ir", "qmb.ir", "tamin.ir", "meedc.net", "ntp.faraborddi.com", "qmehr724.com"}, GeoDirectory: "/etc/pol/geo", GeoAuto: "disabled", GeoIPUpdate: true, GeoSiteUpdate: true, IranDNS: "178.22.122.100", GeoIPURL: geoBase + "geoip.dat", GeoSiteURL: geoBase + "geosite.dat", Mode: "worker", Variant: "normal", Port: 443, Path: "/?ed=2560", DNS: "1.1.1.1", LocalDNS: "8.8.8.8", LAN: "br-lan", Transparent: true, FragmentLength: "100-200", FragmentDelay: "0", TLSFingerprint: "chrome", DNSStrategy: "UseIPv4", NoiseSize: "40-70", NoiseDelay: "0", NoiseReset: "30-60", WarpMTU: 1280, WarpKeepAlive: 10, AntiSanctionDNS: "178.22.122.100", Transport: "h2", SNI: "speed.cloudflare.com", LogLevel: "warning", ReleaseRepository: "dreamboxone/pol", BypassDomains: []string{}, BlockDomains: []string{}}
 }
 
 func load() (Settings, error) {
@@ -145,17 +164,18 @@ func load() (Settings, error) {
 	if err != nil {
 		return s, err
 	}
+	s.ProbeInterval = 0
 	err = json.Unmarshal(b, &s)
 	if err == nil {
 		if s.ProbeInterval == 0 {
-			s.ProbeInterval = 30
+			s.ProbeInterval = defaultProbeInterval(s.Mode)
 		}
 		if s.SNI == "engage.cloudflareclient.com" {
 			s.SNI = "speed.cloudflare.com"
 		}
 		rememberWorker(&s)
 		if s.EndpointByMode == nil {
-			s.EndpointByMode = map[string]string{"warp": "162.159.192.1:2408", "masque": "162.159.198.1:443"}
+			s.EndpointByMode = map[string]string{}
 			// Preserve the legacy shared endpoint when it belongs to an inactive mode.
 			if _, port, e := net.SplitHostPort(s.Endpoint); e == nil {
 				if port == "443" || port == "8443" {
@@ -168,12 +188,7 @@ func load() (Settings, error) {
 		if s.Mode == "warp" || s.Mode == "masque" {
 			s.EndpointByMode[s.Mode] = s.Endpoint
 		}
-		if s.DNSByMode == nil {
-			s.DNSByMode = map[string]string{}
-		}
-		if s.DNSByMode[s.Mode] == "" {
-			s.DNSByMode[s.Mode] = s.DNS
-		}
+		migrateRemoteDNS(&s)
 		geoDir = s.GeoDirectory
 	}
 	return s, err
@@ -212,10 +227,6 @@ func persist(s Settings) error {
 		s.EndpointByMode[s.Mode] = s.Endpoint
 	}
 	rememberWorker(&s)
-	if s.DNSByMode == nil {
-		s.DNSByMode = map[string]string{}
-	}
-	s.DNSByMode[s.Mode] = s.DNS
 	b, err := json.MarshalIndent(s, "", "  ")
 	if err != nil {
 		return err
@@ -303,6 +314,19 @@ func parseUptime(value string) int64 {
 }
 
 func validate(s Settings, complete bool) error {
+	if err := validateChains(s); err != nil {
+		return err
+	}
+	s.Chain = effectiveChain(s)
+	if err := validateSharedProxy(s); err != nil {
+		return err
+	}
+	if !contains([]string{"", "udp", "tcp", "doh", "doq"}, s.ServerlessDNSType) || len(s.ServerlessDNSServers) > 64 {
+		return errors.New("invalid serverless DNS type or server list")
+	}
+	if err := validateServerlessResolvers(s); err != nil {
+		return err
+	}
 	if !contains([]string{"", "packet", "dns", "domain-fronting"}, s.ServerlessMode) {
 		return errors.New("invalid serverless mode")
 	}
@@ -313,6 +337,9 @@ func validate(s Settings, complete bool) error {
 		return err
 	}
 	if err := validateSelection(s); err != nil {
+		return err
+	}
+	if err := validateSSH(s, complete); err != nil {
 		return err
 	}
 	if complete && exitMode(s) == "tor" && s.TorBridgeMode == "custom" && len(s.TorBridges) == 0 {
@@ -348,7 +375,7 @@ func validate(s Settings, complete bool) error {
 	if s.Port < 1 || s.Port > 65535 {
 		return errors.New("invalid port")
 	}
-	if !contains([]string{"worker", "warp", "masque", "serverless", "tor", "psiphon", "custom"}, s.Mode) {
+	if !contains([]string{"worker", "warp", "masque", "serverless", "tor", "psiphon", "ssh", "custom"}, s.Mode) {
 		return errors.New("invalid connection mode")
 	}
 	if !contains([]string{"normal", "fragment", "obfuscated"}, s.Variant) {
@@ -374,6 +401,9 @@ func validate(s Settings, complete bool) error {
 	}
 	if s.WarpMTU < 1280 || s.WarpMTU > 1500 || s.WarpKeepAlive < 0 || s.WarpKeepAlive > 65535 {
 		return errors.New("WARP MTU must be 1280-1500; keepalive must be 0-65535")
+	}
+	if s.WorkerDomain != "" && (!validGeoDomain(s.WorkerDomain) || !strings.Contains(s.WorkerDomain, ".")) {
+		return errors.New("invalid custom deployment domain")
 	}
 	if len(s.WorkerSNI) > 253 || strings.ContainsAny(s.WorkerSNI, " /\r\n\t") {
 		return errors.New("invalid Worker SNI")
@@ -401,13 +431,24 @@ func validate(s Settings, complete bool) error {
 	if len(s.Host) > 253 || strings.ContainsAny(s.Host, " /\r\n\t") {
 		return errors.New("invalid Worker hostname")
 	}
-	if len(s.DNS) > 2048 || len(s.Path) > 4096 {
+	if net.ParseIP(s.DNS) == nil {
+		return errors.New("remote DNS must be an IPv4 or IPv6 address")
+	}
+	if net.ParseIP(s.LocalDNS) == nil {
+		return errors.New("local DNS must be an IPv4 or IPv6 address")
+	}
+	if len(s.Path) > 4096 {
 		return errors.New("value too long")
 	}
 	if s.ReleaseRepository != "" && !regexp.MustCompile(`^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$`).MatchString(s.ReleaseRepository) {
 		return errors.New("repository must be owner/name")
 	}
 	if complete {
+		if s.Mode == "warp" || s.Mode == "masque" {
+			if host, _, err := net.SplitHostPort(s.Endpoint); err != nil || host == "" {
+				return errors.New("configure an endpoint as host:port")
+			}
+		}
 		switch s.Mode {
 		case "worker":
 			if s.Host == "" || !regexp.MustCompile(`^[0-9a-fA-F]{8}(-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}$`).MatchString(s.UUID) {
@@ -569,6 +610,15 @@ func rpc(method string, input object) (any, error) {
 		return nil, err
 	}
 	switch method {
+	case "config":
+		if err := validate(s, true); err != nil {
+			return nil, err
+		}
+		cfg, err := buildConfig(s)
+		if err != nil {
+			return nil, err
+		}
+		return object{"config": cfg}, nil
 	case "settings":
 		return s, nil
 	case "status":
@@ -588,31 +638,33 @@ func rpc(method string, input object) (any, error) {
 				connection.Connected = false
 			}
 		}
-		return object{"exit": exit, "version": version, "uptime": routerUptime(), "features": object{"siteChecks": true, "routingLists": true, "geoManager": true, "nativeExits": true, "automaticScanner": true, "workerProfiles": true}, "coreVersion": cachedCoreVersion(), "usage": usageSummary(trafficLoad(), routerTime()), "connection": connection, "server": serverName(s), "running": running(), "enabled": s.Enabled, "mode": s.Mode, "transparent": s.Transparent, "firewall": nerr == nil, "packageManager": manager, "job": readJob()}, nil
+		return object{"exit": exit, "version": version, "uptime": routerUptime(), "features": object{"siteChecks": true, "routingLists": true, "geoManager": true, "nativeExits": true, "automaticScanner": true, "workerProfiles": true, "cloudflareSignIn": true}, "coreVersion": cachedCoreVersion(), "usage": usageSummary(trafficLoad(), routerTime()), "connection": connection, "server": serverName(s), "running": running(), "enabled": s.Enabled, "mode": s.Mode, "transparent": s.Transparent, "firewall": nerr == nil, "packageManager": manager, "job": readJob()}, nil
 	case "save":
 		b, _ := json.Marshal(input["settings"])
 		next := s
+		fields, _ := input["settings"].(map[string]any)
+		if _, explicit := fields["exitChains"]; explicit {
+			next.ExitChains = nil
+		}
 		if err = json.Unmarshal(b, &next); err != nil {
 			return nil, err
 		}
+		if next.Host != s.Host {
+			if _, explicit := fields["workerDomain"]; !explicit {
+				next.WorkerDomain = ""
+			}
+		}
 		if next.Mode != s.Mode {
-			fields, _ := input["settings"].(map[string]any)
+			if _, explicit := fields["probeInterval"]; !explicit && s.ProbeInterval == defaultProbeInterval(s.Mode) {
+				next.ProbeInterval = defaultProbeInterval(next.Mode)
+			}
 			if _, explicit := fields["endpoint"]; !explicit && (next.Mode == "warp" || next.Mode == "masque") {
 				next.Endpoint = next.EndpointByMode[next.Mode]
-				if next.Endpoint == "" {
-					next.Endpoint = map[string]string{"warp": "162.159.192.1:2408", "masque": "162.159.198.1:443"}[next.Mode]
-				}
-			}
-			if _, explicit := fields["dns"]; !explicit {
-				next.DNS = defaultDNSForMode(next.Mode)
-				if saved := next.DNSByMode[next.Mode]; saved != "" {
-					next.DNS = saved
-				}
 			}
 		}
 		if next.Mode != s.Mode || next.Transport != s.Transport {
 			next.Variant = "normal"
-			if next.Mode == "serverless" {
+			if next.Mode == "serverless" && next.ServerlessMode == "packet" {
 				next.Variant = "fragment"
 			}
 		}
@@ -680,7 +732,7 @@ func rpc(method string, input object) (any, error) {
 		return controlScan(action)
 	case "scan":
 		text, _ := input["text"].(string)
-		return scan(s, text)
+		return scan(s, text, mapAt(input, "options"))
 	case "register":
 		kind, _ := input["kind"].(string)
 		next, e := registerAccount(s, kind)
@@ -691,6 +743,16 @@ func rpc(method string, input object) (any, error) {
 			return nil, e
 		}
 		return object{"ok": true}, nil
+	case "cfDomain":
+		return manageCloudflareDomain(s, input)
+	case "cfUsage":
+		return cloudflareUsage(input)
+	case "cfAutoUpdate":
+		return configureWorkerUpdates(input)
+	case "cfSignIn":
+		return signInCloudflare(input)
+	case "cfUpdate":
+		return updateWorkerScript(s, input)
 	case "cfDelete":
 		return deleteDeployment(s, input)
 	case "deploy":
@@ -709,7 +771,7 @@ func rpc(method string, input object) (any, error) {
 }
 
 func methods() object {
-	return object{"dnsProbe": object{"request": object{}}, "torBridges": object{"transport": ""}, "scanControl": object{"action": ""}, "check": object{"site": ""}, "geo": object{}, "geoUpdate": object{"kind": ""}, "scan": object{"text": ""}, "status": object{}, "settings": object{}, "logs": object{"kind": ""}, "save": object{"settings": object{}}, "toggle": object{"enabled": false}, "import": object{"text": ""}, "register": object{"kind": ""}, "cfDelete": object{"token": "", "account": "", "name": "", "kind": ""}, "deploy": object{"token": "", "account": "", "name": "", "kind": ""}, "releases": object{"component": ""}, "update": object{"component": "", "tag": ""}}
+	return object{"config": object{}, "cfDomain": object{"token": "", "account": "", "name": "", "kind": "", "hostname": "", "action": ""}, "cfUsage": object{"token": "", "account": "", "name": ""}, "cfAutoUpdate": object{"token": "", "account": "", "enabled": false, "kind": ""}, "cfSignIn": object{"token": "", "account": "", "kind": ""}, "cfUpdate": object{"token": "", "account": "", "name": "", "kind": ""}, "dnsProbe": object{"request": object{}}, "torBridges": object{"transport": ""}, "scanControl": object{"action": ""}, "check": object{"site": ""}, "geo": object{}, "geoUpdate": object{"kind": ""}, "scan": object{"text": "", "options": object{}}, "status": object{}, "settings": object{}, "logs": object{"kind": ""}, "save": object{"settings": object{}}, "toggle": object{"enabled": false}, "import": object{"text": ""}, "register": object{"kind": ""}, "cfDelete": object{"token": "", "account": "", "name": "", "kind": ""}, "deploy": object{"token": "", "account": "", "name": "", "kind": ""}, "releases": object{"component": ""}, "update": object{"component": "", "tag": ""}}
 }
 
 func main() {
@@ -723,6 +785,13 @@ func main() {
 			os.Exit(1)
 		}
 		fmt.Println(s.GeoDirectory)
+		return
+	}
+	if os.Args[1] == "worker-auto-update" {
+		if err := autoUpdateWorkers(); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
 		return
 	}
 	if os.Args[1] == "monitor" {
@@ -775,7 +844,7 @@ func main() {
 			cancelJob()
 			_, _ = run(12*time.Second, "/etc/init.d/pol", "stop")
 		}
-		if !contains([]string{"settings", "status", "logs", "releases", "geo", "scanControl"}, method) {
+		if !contains([]string{"settings", "status", "logs", "releases", "geo", "scanControl", "cfSignIn", "cfUsage"}, method) {
 			f, err := os.OpenFile("/var/lock/pol.lock", os.O_CREATE|os.O_RDWR, 0600)
 			if err != nil {
 				_ = json.NewEncoder(os.Stdout).Encode(object{"error": err.Error()})
@@ -807,6 +876,17 @@ func main() {
 	}
 	var err error
 	switch os.Args[1] {
+	case "ssh-run":
+		var s Settings
+		s, err = load()
+		if err == nil {
+			err = runSSH(s)
+		}
+	case "ssh-enabled":
+		s, e := load()
+		if e != nil || !s.Enabled || s.Mode != "ssh" {
+			os.Exit(1)
+		}
 	case "exit-run":
 		s, e := load()
 		if e != nil {

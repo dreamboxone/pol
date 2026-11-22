@@ -25,6 +25,77 @@ import (
 
 var httpClient = &http.Client{Timeout: 35 * time.Second}
 
+func signInCloudflare(input object) (any, error) {
+	token := strings.TrimSpace(strAt(input, "token"))
+	account := strings.TrimSpace(strAt(input, "account"))
+	if !regexp.MustCompile(`^[A-Za-z0-9_-]{20,256}$`).MatchString(token) {
+		return nil, errors.New("invalid API token")
+	}
+	if !regexp.MustCompile(`^[a-fA-F0-9]{32}$`).MatchString(account) {
+		return nil, errors.New("invalid Account ID")
+	}
+	kind := strAt(input, "kind")
+	var path string
+	switch kind {
+	case "worker":
+		path = "/workers/scripts"
+	case "pages":
+		path = "/pages/projects?per_page=1"
+	default:
+		return nil, errors.New("invalid Cloudflare product")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 12*time.Second)
+	defer cancel()
+	url := "https://api.cloudflare.com/client/v4/accounts/" + account + path
+	result, err := requestJSONContext(ctx, http.MethodGet, url, map[string]string{"Authorization": "Bearer " + token}, nil)
+	if err != nil {
+		if ctx.Err() != nil {
+			return nil, errors.New("Cloudflare sign-in timed out")
+		}
+		return nil, errors.New("Cloudflare account access could not be verified")
+	}
+	if _, ok := result["result"].([]any); result["success"] != true || !ok {
+		return nil, errors.New("Cloudflare account access could not be verified")
+	}
+	return object{"account": account, "kind": kind, "autoUpdate": workerUpdateTokens()[workerUpdateAccount(kind, account)] != ""}, nil
+}
+
+func cloudflareUsage(input object) (any, error) {
+	token, account, name := strAt(input, "token"), strAt(input, "account"), strAt(input, "name")
+	if !regexp.MustCompile(`^[A-Za-z0-9_-]{20,256}$`).MatchString(token) ||
+		!regexp.MustCompile(`^[a-fA-F0-9]{32}$`).MatchString(account) ||
+		!regexp.MustCompile(`^[a-z][a-z0-9-]{2,40}$`).MatchString(name) {
+		return nil, errors.New("invalid deployment identity")
+	}
+	const query = `query GetUsage($account: String!, $script: String!, $start: String!, $end: String!) {
+ viewer { accounts(filter: {accountTag: $account}) {
+ total: workersInvocationsAdaptive(limit: 100, filter: {datetime_geq: $start, datetime_leq: $end}) { sum { requests } }
+ worker: workersInvocationsAdaptive(limit: 100, filter: {scriptName: $script, datetime_geq: $start, datetime_leq: $end}) { sum { requests } }
+ }}}`
+	end := time.Now().UTC()
+	ctx, cancel := context.WithTimeout(context.Background(), 12*time.Second)
+	defer cancel()
+	data, err := requestJSONContext(ctx, http.MethodPost, "https://api.cloudflare.com/client/v4/graphql", map[string]string{"Authorization": "Bearer " + token}, object{"query": query, "variables": object{"account": account, "script": name, "start": end.Add(-24 * time.Hour).Format(time.RFC3339), "end": end.Format(time.RFC3339)}})
+	if err != nil || len(asArray(data["errors"])) > 0 {
+		return nil, errors.New("Cloudflare usage could not be loaded")
+	}
+	accounts := asArray(mapAt(mapAt(data, "data"), "viewer")["accounts"])
+	if len(accounts) == 0 {
+		return nil, errors.New("Cloudflare usage could not be loaded")
+	}
+	metrics, _ := accounts[0].(object)
+	sum := func(key string) int64 {
+		var total int64
+		for _, raw := range asArray(metrics[key]) {
+			row, _ := raw.(object)
+			count, _ := mapAt(row, "sum")["requests"].(float64)
+			total += int64(count)
+		}
+		return total
+	}
+	return object{"total": sum("total"), "deployment": sum("worker")}, nil
+}
+
 func requestJSON(method, address string, headers map[string]string, body any) (object, error) {
 	return requestJSONContext(context.Background(), method, address, headers, body)
 }
@@ -146,7 +217,6 @@ func registerAccount(s Settings, kind string) (Settings, error) {
 		}
 		s.Endpoint = offeredEndpoint(peer, "162.159.198.1", 443)
 		s.Mode = "masque"
-		s.DNS = defaultDNSForMode("masque")
 		if s.SNI == "" || s.SNI == "engage.cloudflareclient.com" {
 			s.SNI = "speed.cloudflare.com"
 		}
@@ -174,7 +244,6 @@ func registerAccount(s Settings, kind string) (Settings, error) {
 			return s, errors.New("incomplete WARP response")
 		}
 		s.Mode = "warp"
-		s.DNS = defaultDNSForMode("warp")
 		s.Endpoint = offeredEndpoint(peer, "162.159.192.1", 2408)
 	}
 	event("Registered " + kind + " account")
@@ -244,51 +313,15 @@ func deployWorker(s Settings, input object) (any, error) {
 		return nil, err
 	}
 	env, _ := json.Marshal(object{"v": 1, "id": uuid, "pips": s.WorkerProxyIPs, "fb": s.WorkerFallback})
-	script, err := os.ReadFile("/usr/share/pol/worker.js")
-	if err != nil {
-		return nil, err
-	}
 	meta, _ := json.Marshal(object{"main_module": "worker.js", "compatibility_date": "2026-09-01", "bindings": []any{object{"type": "plain_text", "name": "ENV", "text": base64.StdEncoding.EncodeToString(env)}}})
-	var body bytes.Buffer
-	writer := multipart.NewWriter(&body)
-	for _, p := range []struct {
-		name, typ string
-		data      []byte
-	}{{"metadata", "application/json", meta}, {"worker.js", "application/javascript+module", script}} {
-		h := textproto.MIMEHeader{}
-		h.Set("Content-Disposition", fmt.Sprintf(`form-data; name="%s"; filename="%s"`, p.name, p.name))
-		h.Set("Content-Type", p.typ)
-		part, e := writer.CreatePart(h)
-		if e != nil {
-			return nil, e
-		}
-		if _, e = part.Write(p.data); e != nil {
-			return nil, e
-		}
-	}
-	if err = writer.Close(); err != nil {
+	if err = uploadWorkerScript(base+"/scripts/"+name, token, meta); err != nil {
 		return nil, err
-	}
-	req, err := http.NewRequest("PUT", base+"/scripts/"+name, &body)
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("Authorization", "Bearer "+token)
-	req.Header.Set("Content-Type", writer.FormDataContentType())
-	resp, err := httpClient.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	var result object
-	decodeErr := json.NewDecoder(io.LimitReader(resp.Body, 2<<20)).Decode(&result)
-	resp.Body.Close()
-	if decodeErr != nil || resp.StatusCode >= 300 || result["success"] == false {
-		return nil, fmt.Errorf("Worker upload failed (HTTP %d): %v", resp.StatusCode, result["errors"])
 	}
 	if _, err = requestJSON("POST", base+"/scripts/"+name+"/subdomain", headers, object{"enabled": true, "previews_enabled": false}); err != nil {
 		return nil, err
 	}
 	s.Mode = "worker"
+	s.WorkerDomain = ""
 	s.Host = name + "." + subdomain + ".workers.dev"
 	s.Address = ""
 	s.UUID = uuid
@@ -307,4 +340,91 @@ func deployWorker(s Settings, input object) (any, error) {
 	}
 	event("Worker deployed: " + s.Host)
 	return object{"ok": true, "host": s.Host}, nil
+}
+
+func uploadWorkerScript(address, token string, meta []byte) error {
+	script, err := os.ReadFile("/usr/share/pol/worker.js")
+	if err != nil {
+		return err
+	}
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	for _, p := range []struct {
+		name, typ string
+		data      []byte
+	}{{"metadata", "application/json", meta}, {"worker.js", "application/javascript+module", script}} {
+		h := textproto.MIMEHeader{}
+		h.Set("Content-Disposition", fmt.Sprintf(`form-data; name="%s"; filename="%s"`, p.name, p.name))
+		h.Set("Content-Type", p.typ)
+		part, e := writer.CreatePart(h)
+		if e != nil {
+			return e
+		}
+		if _, e = part.Write(p.data); e != nil {
+			return e
+		}
+	}
+	if err = writer.Close(); err != nil {
+		return err
+	}
+	req, err := http.NewRequest("PUT", address, &body)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return err
+	}
+	var result object
+	decodeErr := json.NewDecoder(io.LimitReader(resp.Body, 2<<20)).Decode(&result)
+	resp.Body.Close()
+	if decodeErr != nil || resp.StatusCode >= 300 || result["success"] == false {
+		return fmt.Errorf("Worker upload failed (HTTP %d): %v", resp.StatusCode, result["errors"])
+	}
+	return nil
+}
+
+func updateWorkerScript(s Settings, input object) (any, error) {
+	token, account, name := strAt(input, "token"), strAt(input, "account"), strAt(input, "name")
+	if !regexp.MustCompile(`^[A-Za-z0-9_-]{20,256}$`).MatchString(token) ||
+		!regexp.MustCompile(`^[a-fA-F0-9]{32}$`).MatchString(account) ||
+		!regexp.MustCompile(`^[a-z][a-z0-9-]{2,40}$`).MatchString(name) {
+		return nil, errors.New("invalid Worker token, account or name")
+	}
+	kind := strAt(input, "kind")
+	if kind == "" {
+		kind = "worker"
+	}
+	for _, profile := range s.WorkerProfiles {
+		if profile.Kind != kind || !strings.EqualFold(profile.AccountID, account) || profile.Project != name {
+			continue
+		}
+		base := "https://api.cloudflare.com/client/v4/accounts/" + account
+		if kind == "pages" {
+			address := base + "/pages/projects/" + name
+			project, err := requestJSON("GET", address, map[string]string{"Authorization": "Bearer " + token}, nil)
+			if err != nil {
+				return nil, err
+			}
+			branch := strAt(mapAt(project, "result"), "production_branch")
+			if branch == "" {
+				return nil, errors.New("Pages project has no production branch")
+			}
+			if err := uploadPagesScript(address, token, branch); err != nil {
+				return nil, err
+			}
+			return object{"ok": true}, nil
+		}
+		if kind != "worker" {
+			return nil, errors.New("unsupported deployment")
+		}
+		address := base + "/workers/scripts/" + name + "/content"
+		if err := uploadWorkerScript(address, token, []byte(`{"main_module":"worker.js"}`)); err != nil {
+			return nil, err
+		}
+		return object{"ok": true}, nil
+	}
+	return nil, errors.New("select a Worker deployed by Pol")
 }

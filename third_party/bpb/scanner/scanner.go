@@ -247,6 +247,12 @@ func (s *Scanner) run(ctx context.Context, options Options, events chan Event) {
 			defer candidatesInFlight.Done()
 			launched, _ := launchRounds(ctx, candidate, 1, options.AttemptCount, firstLaunch.Add(attemptInterval), attemptInterval, s.waitForWork, &attempts)
 			attempts.Wait()
+			if !s.waitForWork(ctx) {
+				if err := candidate.session.Close(); err != nil {
+					log.Printf("scanner candidate %s: close candidate outbound: %v", candidate.ip, err)
+				}
+				return
+			}
 			result, rejection, err := candidate.finish(ctx, launched)
 			if rejection != "cancelled" {
 				report(candidate.ip, result, rejection, err)

@@ -2,7 +2,7 @@ include $(TOPDIR)/rules.mk
 POL_SOURCE_DIR?=$(abspath $(CURDIR)/../..)
 
 PKG_NAME:=pol
-PKG_VERSION:=1.8.27
+PKG_VERSION:=5.9.1
 PKG_RELEASE:=1
 POL_VIEW_VERSION:=$(subst .,_,$(PKG_VERSION))
 PKG_LICENSE:=GPL-3.0-only AGPL-3.0-or-later
@@ -47,7 +47,7 @@ endef
 
 define Package/pol/postinst
 #!/bin/sh
-[ -n "$$IPKG_INSTROOT" ] || { /etc/init.d/rpcd restart; rm -f /tmp/luci-indexcache /tmp/luci-indexcache.*.json; if /usr/libexec/rpcd/pol is-enabled; then /etc/init.d/pol start; fi; }
+[ -n "$$IPKG_INSTROOT" ] || { /etc/init.d/rpcd restart; rm -f /tmp/luci-indexcache /tmp/luci-indexcache.*.json; if /usr/libexec/rpcd/pol is-enabled; then /etc/init.d/pol start; fi; /usr/libexec/rpcd/pol worker-auto-update </dev/null >/dev/null 2>&1 & }
 exit 0
 endef
 

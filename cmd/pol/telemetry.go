@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -228,6 +229,8 @@ func serverName(s Settings) string {
 		return s.Host
 	case "warp", "masque":
 		return s.Endpoint
+	case "ssh":
+		return net.JoinHostPort(s.SSH.Host, fmt.Sprint(s.SSH.Port))
 	case "tor":
 		return "127.0.0.1:9050"
 	case "psiphon":

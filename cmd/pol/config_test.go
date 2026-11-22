@@ -107,6 +107,7 @@ func TestTunnelConfigContainsCredentialsAndObfuscation(t *testing.T) {
 	s := defaults()
 	s.Mode = "warp"
 	s.Variant = "obfuscated"
+	s.WarpReserved = true
 	s.Warp = &WarpAccount{PrivateKey: "private", PublicKey: "public", IPv6: "2606:4700::1/128", Reserved: []int{1, 2, 3}}
 	cfg, err := buildConfig(s)
 	if err != nil {
@@ -160,7 +161,7 @@ func TestAdvancedSettingsReachCore(t *testing.T) {
 
 func TestLegacySettingsReceiveAdvancedDefaults(t *testing.T) {
 	s := defaults()
-	if err := json.Unmarshal([]byte(`{"mode":"serverless","fragmentLength":"100-200"}`), &s); err != nil {
+	if err := json.Unmarshal([]byte(`{"mode":"serverless","serverlessMode":"packet","fragmentLength":"100-200"}`), &s); err != nil {
 		t.Fatal(err)
 	}
 	if err := validate(s, true); err != nil {
@@ -251,6 +252,13 @@ func TestGeneratedConfigsWithXray(t *testing.T) {
 		t.Run(tc.mode+"/"+tc.variant+"/"+tc.transport, func(t *testing.T) {
 			s := defaults()
 			s.Mode, s.Variant, s.Transport = tc.mode, tc.variant, tc.transport
+			s.Endpoint = "162.159.192.1:2408"
+			if tc.mode == "masque" {
+				s.Endpoint = "162.159.198.1:443"
+			}
+			if tc.mode == "serverless" {
+				s.ServerlessMode = "packet"
+			}
 			s.Host, s.UUID = "test.workers.dev", "12345678-1234-1234-1234-123456789abc"
 			s.Warp = &WarpAccount{PrivateKey: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAE=", PublicKey: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAE=", IPv6: "2606:4700::1/128", Reserved: []int{1, 2, 3}}
 			s.Masque = &MasqueAccount{PrivateKey: base64.StdEncoding.EncodeToString(privateDER), PublicKey: base64.StdEncoding.EncodeToString(publicDER), IPv4: "172.16.0.2/32", IPv6: "2606:4700::1/128"}

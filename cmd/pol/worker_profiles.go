@@ -17,7 +17,7 @@ func rememberWorker(s *Settings) {
 	if s.Host == "" || s.UUID == "" {
 		return
 	}
-	p := WorkerProfile{Name: s.Host, Kind: "worker", Host: s.Host, UUID: s.UUID, Address: s.Address, Port: s.Port, Path: s.Path, WorkerSNI: s.WorkerSNI}
+	p := WorkerProfile{Name: s.Host, Kind: "worker", Host: s.Host, UUID: s.UUID, Address: s.Address, Port: s.Port, Path: s.Path, WorkerSNI: s.WorkerSNI, CustomDomain: s.WorkerDomain}
 	for i, old := range s.WorkerProfiles {
 		if old.Host == p.Host {
 			p.Name = old.Name
@@ -48,10 +48,6 @@ func deployPages(s Settings, input object) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	script, err := os.ReadFile("/usr/share/pol/worker.js")
-	if err != nil {
-		return nil, err
-	}
 	env, _ := json.Marshal(object{"v": 1, "id": uuid, "pips": s.WorkerProxyIPs, "fb": s.WorkerFallback})
 	headers := map[string]string{"Authorization": "Bearer " + token}
 	base := "https://api.cloudflare.com/client/v4/accounts/" + account + "/pages/projects"
@@ -64,40 +60,12 @@ func deployPages(s Settings, input object) (any, error) {
 	if host == "" {
 		host = name + ".pages.dev"
 	}
-	var body bytes.Buffer
-	writer := multipart.NewWriter(&body)
-	_ = writer.WriteField("manifest", "{}")
-	_ = writer.WriteField("branch", "main")
-	part, err := writer.CreateFormFile("_worker.js", "_worker.js")
-	if err != nil {
+	if err := uploadPagesScript(base+"/"+name, token, "main"); err != nil {
 		return nil, err
-	}
-	if _, err = part.Write(script); err != nil {
-		return nil, err
-	}
-	if err = writer.Close(); err != nil {
-		return nil, err
-	}
-	req, err := http.NewRequest("POST", base+"/"+name+"/deployments", &body)
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("Authorization", headers["Authorization"])
-	req.Header.Set("Content-Type", writer.FormDataContentType())
-	resp, err := httpClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("Pages project created but upload failed: %w", err)
-	}
-	defer resp.Body.Close()
-	var result object
-	if err = json.NewDecoder(io.LimitReader(resp.Body, 2<<20)).Decode(&result); err != nil {
-		return nil, err
-	}
-	if resp.StatusCode >= 300 || result["success"] == false {
-		return nil, fmt.Errorf("Pages project created but upload failed: HTTP %d", resp.StatusCode)
 	}
 	s.Mode = "worker"
 	s.Host = host
+	s.WorkerDomain = ""
 	s.UUID = uuid
 	s.Address = ""
 	s.Port = 443
@@ -114,6 +82,46 @@ func deployPages(s Settings, input object) (any, error) {
 		return nil, fmt.Errorf("Pages created at %s, but local settings failed: %w", host, err)
 	}
 	return object{"ok": true, "host": host}, nil
+}
+
+func uploadPagesScript(address, token, branch string) error {
+	script, err := os.ReadFile("/usr/share/pol/worker.js")
+	if err != nil {
+		return err
+	}
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	_ = writer.WriteField("manifest", "{}")
+	_ = writer.WriteField("branch", branch)
+	part, err := writer.CreateFormFile("_worker.js", "_worker.js")
+	if err != nil {
+		return err
+	}
+	if _, err = part.Write(script); err != nil {
+		return err
+	}
+	if err = writer.Close(); err != nil {
+		return err
+	}
+	req, err := http.NewRequest("POST", address+"/deployments", &body)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("Pages upload failed: %w", err)
+	}
+	defer resp.Body.Close()
+	var result object
+	if err = json.NewDecoder(io.LimitReader(resp.Body, 2<<20)).Decode(&result); err != nil {
+		return err
+	}
+	if resp.StatusCode >= 300 || result["success"] == false {
+		return fmt.Errorf("Pages upload failed: HTTP %d", resp.StatusCode)
+	}
+	return nil
 }
 
 func deleteDeployment(s Settings, input object) (any, error) {
